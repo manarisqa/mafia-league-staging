@@ -8,7 +8,7 @@ import {
   SignupRow,
 } from "@/app/admin/evenings/evening-forms";
 import { AddGameForm } from "@/app/admin/games/game-forms";
-import { adminEvening, adminGamesOfEvening, adminPlayers, adminSignups } from "@/lib/admin-data";
+import { adminEvening, adminGamesOfEvening, adminPlayers, adminSignups, adminSeasons } from "@/lib/admin-data";
 import { requireAdmin } from "@/lib/auth";
 import { FORMAT_LABEL, GAME_STATUS_LABEL, WINNER_LABEL, fullDateTime } from "@/lib/format";
 import { isUuid } from "@/lib/validate";
@@ -20,11 +20,12 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
   const { id } = await props.params;
   if (!isUuid(id)) notFound();
 
-  const [evening, players, signups, games] = await Promise.all([
+  const [evening, players, signups, games, seasons] = await Promise.all([
     adminEvening(supabase, id),
     adminPlayers(supabase),
     adminSignups(supabase, id),
     adminGamesOfEvening(supabase, id),
+    adminSeasons(supabase),
   ]);
   if (!evening) notFound();
 
@@ -47,7 +48,7 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
 
       <section className="rounded-card border border-border bg-surface p-5">
         <h2 className="mb-4 font-display text-xl font-bold">О вечере</h2>
-        <EveningForm evening={evening} players={options} />
+        <EveningForm key={evening.id} evening={evening} players={options} seasons={seasons} />
       </section>
 
       <section className="rounded-card border border-border bg-surface p-5">
@@ -59,7 +60,7 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
         {signups.length > 0 && (
           <ul className="mt-5 space-y-2">
             {signups.map((s) => (
-              <SignupRow key={s.player_id} eveningId={evening.id} signup={s} />
+              <SignupRow key={`${evening.id}:${s.player_id}`} eveningId={evening.id} signup={s} />
             ))}
           </ul>
         )}
@@ -94,7 +95,7 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
       </section>
 
       <div className="flex justify-end">
-        <DeleteEveningButton id={evening.id} />
+        <DeleteEveningButton id={evening.id} revision={evening.revision} />
       </div>
     </div>
   );

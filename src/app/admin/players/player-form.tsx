@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from "react";
 import { deletePlayer, savePlayer } from "@/app/admin/players/actions";
 import type { AdminPlayer } from "@/lib/admin-data";
+import { RevisionField } from "@/components/form-revision";
 import { keepFormSubmit } from "@/lib/keep-form";
 
 const field =
@@ -21,6 +22,7 @@ export function PlayerForm({ player }: { player?: AdminPlayer }) {
     <div>
       <form ref={formRef} onSubmit={keepFormSubmit(action)} className="grid gap-3 sm:grid-cols-[1fr_1fr_10rem_auto] sm:items-end">
         {player && <input type="hidden" name="id" value={player.id} />}
+        {player ? <RevisionField initial={player.revision} state={state} /> : <input type="hidden" name="revision" value={0} />}
         <label className="block text-sm text-muted">
           Имя
           <input
@@ -77,6 +79,7 @@ export function DeletePlayerButton({ player }: { player: AdminPlayer }) {
       }}
     >
       <input type="hidden" name="id" value={player.id} />
+      <input type="hidden" name="revision" value={player.revision} />
       <button
         type="submit"
         disabled={pending}

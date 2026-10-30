@@ -1,113 +1,55 @@
 "use server";
-
 import { updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import type { FormState } from "@/lib/form-state";
 import { viennaLocalToIso } from "@/lib/format";
 import { isUuid } from "@/lib/validate";
+import { expectedRevision, mutationError } from "@/lib/mutation";
 
-const EVENING_STATUSES = ["planned", "finished", "cancelled"] as const;
-const SIGNUP_STATUSES = ["going", "late", "maybe", "not_going"] as const;
-const oneOf = <T extends readonly string[]>(list: T, v: string): v is T[number] => list.includes(v);
-
-export async function saveEvening(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function saveEvening(prev: FormState, form: FormData): Promise<FormState> {
   const { supabase } = await requireAdmin();
-
-  const id = String(formData.get("id") ?? "");
-  const startsLocal = String(formData.get("starts_at") ?? "");
-  const place = String(formData.get("place") ?? "").trim();
-  const capacity = Number(formData.get("capacity"));
-  const status = String(formData.get("status") ?? "");
-  const host = String(formData.get("host_player_id") ?? "");
-  const note = String(formData.get("note") ?? "").trim();
-
-  const startsAt = viennaLocalToIso(startsLocal);
-  if (!startsAt) return { message: "Укажите дату и время (по времени Граца)." };
-  if (place.length < 1 || place.length > 100) return { message: "Место: от 1 до 100 символов." };
-  if (capacity !== 9 && capacity !== 10) return { message: "Мест может быть 9 или 10." };
-  if (!oneOf(EVENING_STATUSES, status)) return { message: "Выберите статус вечера." };
-  if (host && !isUuid(host)) return { message: "Неверный ведущий." };
-  if (note.length > 500) return { message: "Заметка: не больше 500 символов." };
-  if (id && !isUuid(id)) return { message: "Неверный вечер." };
-
-  const row = {
-    starts_at: startsAt,
-    place,
-    capacity,
-    status,
-    host_player_id: host || null,
-    note: note || null,
-  };
-
-  if (id) {
-    const { error } = await supabase.from("evenings").update(row).eq("id", id);
-    if (error) return { message: "Не удалось сохранить. Попробуйте ещё раз." };
-    updateTag("club");
-    return { ok: true, message: "Сохранено." };
-  }
-
-  const { data, error } = await supabase.from("evenings").insert(row).select("id").single();
-  if (error || !data) return { message: "Не удалось создать вечер. Попробуйте ещё раз." };
+  const id = String(form.get("id") ?? "");
+  const revision = expectedRevision(form);
+  const starts = viennaLocalToIso(String(form.get("starts_at") ?? ""));
+  const place = String(form.get("place") ?? "").trim();
+  const capacity = Number(form.get("capacity"));
+  const status = String(form.get("status") ?? "");
+  const host = String(form.get("host_player_id") ?? "");
+  const season = String(form.get("season_id") ?? "");
+  const note = String(form.get("note") ?? "").trim();
+  if ((id && !isUuid(id)) || revision === null || !starts) return { message: "Проверьте дату и версию вечера." };
+  if (place.length < 1 || place.length > 100 || note.length > 500) return { message: "Место: 1–100 символов, заметка: до 500." };
+  if (![9, 10].includes(capacity) || !["planned", "finished", "cancelled"].includes(status)) return { message: "Проверьте число мест и статус." };
+  if ((host && !isUuid(host)) || (season && !isUuid(season))) return { message: "Проверьте ведущего и сезон." };
+  const { data, error } = await supabase.rpc("save_evening", { p_id: id || null, p_expected_revision: revision,
+    p_starts_at: starts, p_place: place, p_capacity: capacity, p_status: status, p_host: host || null, p_note: note, p_season: season || null });
+  if (error) return { ...prev, ...mutationError(error) };
   updateTag("club");
-  redirect(`/admin/evenings/${data.id}`);
+  if (!id) redirect(`/admin/evenings/${data.id}`);
+  return { ok: true, revision: Number(data.revision), message: "Вечер и приватная заметка сохранены." };
 }
-
-export async function deleteEvening(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function deleteEvening(prev: FormState, form: FormData): Promise<FormState> {
   const { supabase } = await requireAdmin();
-
-  const id = String(formData.get("id") ?? "");
-  if (!isUuid(id)) return { message: "Неверный вечер." };
-
-  // Партии удаляются вместе с вечером, поэтому такой вечер удалять нельзя.
-  const { count, error: countError } = await supabase
-    .from("games")
-    .select("id", { count: "exact", head: true })
-    .eq("evening_id", id);
-  if (countError) return { message: "Не удалось проверить партии. Попробуйте ещё раз." };
-  if ((count ?? 0) > 0) {
-    return { message: "Нельзя удалить: на вечере есть сыгранные партии. Отметьте вечер как «Отменён»." };
-  }
-
-  const { error } = await supabase.from("evenings").delete().eq("id", id);
-  if (error) return { message: "Не удалось удалить. Попробуйте ещё раз." };
-
-  updateTag("club");
-  redirect("/admin/evenings");
+  const id = String(form.get("id") ?? "");
+  const revision = expectedRevision(form);
+  if (!isUuid(id) || revision === null) return { message: "Обновите страницу вечера." };
+  const { error } = await supabase.rpc("delete_evening", { p_evening: id, p_expected_revision: revision });
+  if (error) return mutationError(error);
+  updateTag("club"); redirect("/admin/evenings");
 }
-
-export async function setSignup(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function setSignup(prev: FormState, form: FormData): Promise<FormState> {
   const { supabase } = await requireAdmin();
-
-  const eveningId = String(formData.get("evening_id") ?? "");
-  const playerId = String(formData.get("player_id") ?? "");
-  const status = String(formData.get("status") ?? "");
-  if (!isUuid(eveningId) || !isUuid(playerId)) return { message: "Выберите игрока." };
-  if (!oneOf(SIGNUP_STATUSES, status)) return { message: "Выберите статус." };
-
-  const { error } = await supabase
-    .from("evening_signups")
-    .upsert({ evening_id: eveningId, player_id: playerId, status }, { onConflict: "evening_id,player_id" });
-  if (error) return { message: "Не удалось сохранить запись." };
-
-  updateTag("club");
-  return { ok: true, message: "Сохранено." };
+  const evening = String(form.get("evening_id") ?? "");
+  const player = String(form.get("player_id") ?? "");
+  const status = String(form.get("status") ?? "");
+  const revision = expectedRevision(form);
+  if (!isUuid(evening) || !isUuid(player) || revision === null || !["going", "late", "maybe", "not_going", "cancel"].includes(status)) return { message: "Проверьте запись и обновите страницу." };
+  const { data, error } = await supabase.rpc("set_rsvp", { p_evening: evening, p_player: player, p_status: status, p_expected_revision: revision });
+  if (error) return { ...prev, ...mutationError(error) };
+  updateTag("club"); return { ok: true, revision: Number(data), message: status === "cancel" ? "Запись удалена." : "Запись сохранена." };
 }
-
-export async function removeSignup(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { supabase } = await requireAdmin();
-
-  const eveningId = String(formData.get("evening_id") ?? "");
-  const playerId = String(formData.get("player_id") ?? "");
-  if (!isUuid(eveningId) || !isUuid(playerId)) return { message: "Неверная запись." };
-
-  const { error } = await supabase
-    .from("evening_signups")
-    .delete()
-    .eq("evening_id", eveningId)
-    .eq("player_id", playerId);
-  if (error) return { message: "Не удалось удалить запись." };
-
-  updateTag("club");
-  return { ok: true, message: "Запись удалена." };
+export async function removeSignup(prev: FormState, form: FormData): Promise<FormState> {
+  form.set("status", "cancel");
+  return setSignup(prev, form);
 }

@@ -48,15 +48,16 @@ export async function RsvpPanel({ eveningId }: { eveningId: string }) {
 
   const { data: signup } = await supabase
     .from("evening_signups")
-    .select("status")
+    .select("status, revision")
     .eq("evening_id", eveningId)
     .eq("player_id", player.id)
     .maybeSingle();
 
   return (
     <Card title="Записаться на вечер" className="border-accent/40">
-      <RsvpButtons
+      <RsvpButtons key={`${eveningId}:${player.id}`}
         eveningId={eveningId}
+        revision={Number(signup?.revision ?? 0)}
         current={(signup?.status as "going" | "late" | "maybe" | "not_going" | undefined) ?? null}
         name={player.display_name}
       />

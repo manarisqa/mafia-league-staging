@@ -1,74 +1,43 @@
 "use server";
-
 import { updateTag } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import type { FormState } from "@/lib/form-state";
 import { isUuid } from "@/lib/validate";
+import { expectedRevision, mutationError } from "@/lib/mutation";
 
-const STATUSES = ["club_member", "newbie"] as const;
-
-export async function savePlayer(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function savePlayer(prev: FormState, form: FormData): Promise<FormState> {
   const { supabase } = await requireAdmin();
-
-  const id = String(formData.get("id") ?? "");
-  const name = String(formData.get("name") ?? "").trim();
-  const nickname = String(formData.get("nickname") ?? "").trim();
-  const status = String(formData.get("status") ?? "");
-
-  if (name.length < 1 || name.length > 60) return { message: "Имя: от 1 до 60 символов." };
-  if (nickname.length > 40) return { message: "Никнейм: не больше 40 символов." };
-  if (!(STATUSES as readonly string[]).includes(status)) return { message: "Выберите статус." };
-
-  const row = {
-    display_name: name,
-    nickname: nickname || null,
-    status: status as (typeof STATUSES)[number],
-  };
-  const { error } = id
-    ? await supabase.from("players").update(row).eq("id", id)
-    : await supabase.from("players").insert({ ...row, joined_on: new Date().toISOString().slice(0, 10) });
-
-  if (error) return { message: "Не удалось сохранить. Попробуйте ещё раз." };
-
-  updateTag("club");
-  return { ok: true, message: id ? "Сохранено." : "Игрок добавлен." };
+  const id = String(form.get("id") ?? "");
+  const name = String(form.get("name") ?? "").trim();
+  const nickname = String(form.get("nickname") ?? "").trim();
+  const status = String(form.get("status") ?? "");
+  const revision = expectedRevision(form);
+  if ((id && !isUuid(id)) || revision === null) return { message: "Обновите страницу профиля." };
+  if (name.length < 1 || name.length > 60 || nickname.length > 40) return { message: "Имя: 1–60 символов, никнейм: до 40." };
+  if (!["club_member", "newbie"].includes(status)) return { message: "Выберите статус." };
+  const { data, error } = await supabase.rpc("save_player", { p_id: id || null, p_expected_revision: revision,
+    p_name: name, p_nickname: nickname, p_status: status });
+  if (error) return { ...prev, ...mutationError(error) };
+  updateTag("club"); return { ok: true, revision: Number(data), message: id ? "Сохранено." : "Игрок добавлен." };
 }
-
-export async function deletePlayer(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function deletePlayer(_prev: FormState, form: FormData): Promise<FormState> {
   const { supabase } = await requireAdmin();
-
-  const id = String(formData.get("id") ?? "");
-  if (!id) return { message: "Не указан игрок." };
-
-  const { error } = await supabase.from("players").delete().eq("id", id);
-  if (error) {
-    // 23503 — на игрока ссылаются сыгранные партии.
-    return {
-      message:
-        error.code === "23503"
-          ? "Нельзя удалить: у игрока есть сыгранные партии."
-          : "Не удалось удалить. Попробуйте ещё раз.",
-    };
-  }
-
-  updateTag("club");
-  return { ok: true, message: "Игрок удалён." };
+  const id = String(form.get("id") ?? "");
+  const revision = expectedRevision(form);
+  if (!isUuid(id) || revision === null) return { message: "Обновите страницу профиля." };
+  const { error } = await supabase.rpc("delete_player", { p_player: id, p_expected_revision: revision });
+  if (error) return mutationError(error);
+  updateTag("club"); return { ok: true, message: "Игрок удалён." };
 }
-
-/** Привязывает аккаунт (профиль, созданный при регистрации) к старому профилю с историей игр. */
-export async function linkAccount(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function linkAccount(_prev: FormState, form: FormData): Promise<FormState> {
   const { supabase } = await requireAdmin();
-
-  const historical = String(formData.get("historical") ?? "");
-  const account = String(formData.get("account") ?? "");
-  if (!isUuid(historical) || !isUuid(account)) return { message: "Выберите профиль." };
-
-  const { error } = await supabase.rpc("link_account", { historical, account });
-  if (error) {
-    // P0001 — наши понятные сообщения из базы; остальное не показываем.
-    return { message: error.code === "P0001" ? error.message : "Не удалось привязать. Попробуйте ещё раз." };
-  }
-
-  updateTag("club");
-  return { ok: true, message: "Аккаунт привязан. Обновите страницу." };
+  const historical = String(form.get("historical") ?? "");
+  const [account, rawRevision] = String(form.get("account") ?? "").split(":");
+  const accountRevision = Number(rawRevision);
+  const historicalRevision = expectedRevision(form);
+  if (!isUuid(historical) || !isUuid(account) || historicalRevision === null || !Number.isSafeInteger(accountRevision) || accountRevision < 1) return { message: "Выберите профиль и обновите страницу." };
+  const { error } = await supabase.rpc("link_account", { historical, account,
+    p_historical_revision: historicalRevision, p_account_revision: accountRevision });
+  if (error) return mutationError(error);
+  updateTag("club"); return { ok: true, message: "Аккаунт привязан. История сохранена." };
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EveningForm } from "@/app/admin/evenings/evening-forms";
-import { adminEvenings, adminPlayers } from "@/lib/admin-data";
+import { adminEvenings, adminPlayers, adminSeasons } from "@/lib/admin-data";
 import { requireAdmin } from "@/lib/auth";
 import { EVENING_STATUS_LABEL, fullDateTime } from "@/lib/format";
 
@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Вечера · Админка" };
 
 export default async function AdminEveningsPage() {
   const { supabase } = await requireAdmin();
-  const [evenings, players] = await Promise.all([adminEvenings(supabase), adminPlayers(supabase)]);
+  const [evenings, players, seasons] = await Promise.all([adminEvenings(supabase), adminPlayers(supabase), adminSeasons(supabase)]);
   const options = players.map((p) => ({ id: p.id, name: p.display_name }));
 
   return (
@@ -24,7 +24,7 @@ export default async function AdminEveningsPage() {
 
       <section className="rounded-card border border-border bg-surface p-5">
         <h2 className="mb-4 font-display text-xl font-bold">Новый вечер</h2>
-        <EveningForm players={options} />
+        <EveningForm players={options} seasons={seasons} />
       </section>
 
       <section>
@@ -45,7 +45,7 @@ export default async function AdminEveningsPage() {
                   </span>
                   <span className="flex items-center gap-4 text-sm text-muted">
                     <span>
-                      Записано: {e.signups} из {e.capacity}
+                      Подтвердили: {e.signups} из {e.capacity}
                     </span>
                     <span className="rounded-full bg-elevated px-3 py-1">{EVENING_STATUS_LABEL[e.status]}</span>
                   </span>

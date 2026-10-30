@@ -61,6 +61,9 @@ async function Protocol({ params }: { params: Promise<{ id: string }> }) {
         </div>
       </dl>
 
+      <p className="rounded-control border border-border p-3 text-sm text-muted">
+        {game.skillReason ? `Без основного League Skill: ${game.skillReason}.` : "Партия учтена в League Skill · team-logit-v1."}
+      </p>
       <section aria-labelledby="seats-title">
         <h3 id="seats-title" className="mb-4 font-display text-xl font-bold">
           Рассадка и роли
@@ -89,7 +92,7 @@ async function Protocol({ params }: { params: Promise<{ id: string }> }) {
                         {s.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3">{ROLE_LABEL[s.role]}</td>
+                    <td className="px-4 py-3">{ROLE_LABEL[s.role]}{s.removed ? " · удалён" : ""}{s.fouls > 0 ? ` · фолов: ${s.fouls}` : ""}</td>
                     <td className="px-4 py-3">
                       <WinnerMark winner={side} />
                     </td>

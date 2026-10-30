@@ -55,7 +55,7 @@ export default async function PlayersPage() {
                     <div>
                       <dt className="text-muted">Рейтинг</dt>
                       <dd className="font-medium tabular-nums">
-                        {p.games > 0 ? p.rating : "нет оценки"}
+                        {p.skillGames > 0 ? `${Math.round(p.rating)}${p.provisional ? " · предвар." : ""}` : "нет оценки Classic10"}
                       </dd>
                     </div>
                   </dl>

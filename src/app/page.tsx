@@ -142,7 +142,7 @@ export default async function Home() {
                   </span>
                   <Avatar name={p.name} />
                   <span className="flex-1 font-medium">{p.name}</span>
-                  <span className="tabular-nums text-muted">{p.rating}</span>
+                  <span className="tabular-nums text-muted">{Math.round(p.rating)}{p.provisional && <span className="block text-xs">предвар.</span>}</span>
                 </li>
               ))}
             </ul>

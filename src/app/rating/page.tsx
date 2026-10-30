@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getRating, showDemoBadge } from "@/lib/data";
+import { SkillValue } from "@/components/skill";
 import { Avatar, DemoBadge, PageHero } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Рейтинг" };
 
 export default async function RatingPage() {
   const all = await getRating();
-  const rated = all.filter((p) => p.games > 0);
+  const rated = all.filter((p) => p.skillGames > 0);
   const demo = showDemoBadge();
 
   return (
@@ -19,8 +20,10 @@ export default async function RatingPage() {
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <p className="max-w-2xl text-sm text-muted">
-            Предварительный рейтинг: 1000 очков и ±25 за каждую победу или
-            поражение. Ничья рейтинг не меняет. Формулу мы ещё доработаем.
+            League Skill · team-logit-v1. Учитываются подходящие партии Classic10.
+            Short9, ничьи, технические результаты и партии с удалениями остаются в статистике,
+            но не меняют Skill. Оценка предварительная до 20 игр или при высокой неопределённости.
+            Интервал показывает неопределённость оценки, а не диапазон будущих результатов.
           </p>
           {demo && <DemoBadge />}
         </div>
@@ -43,7 +46,7 @@ export default async function RatingPage() {
               <tbody className="divide-y divide-border">
                 {rated.map((p, i) => (
                   <tr key={p.id} className={i < 3 ? "bg-accent/10" : undefined}>
-                    <td className="px-4 py-3 font-display text-lg text-accent-text">{i + 1}</td>
+                    <td className="px-4 py-3 font-display text-lg text-accent-text">{p.provisional ? "—" : 1 + rated.filter((q) => !q.provisional && q.rating > p.rating).length}</td>
                     <td className="px-4 py-3">
                       <span className="flex items-center gap-3">
                         <Avatar name={p.name} size={36} />
@@ -52,7 +55,7 @@ export default async function RatingPage() {
                         </Link>
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right font-medium tabular-nums">{p.rating}</td>
+                    <td className="px-4 py-3 text-right font-medium tabular-nums"><SkillValue stats={p} compact /></td>
                     <td className="px-4 py-3 text-right tabular-nums text-muted">{p.games}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-muted">{p.wins}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-muted">

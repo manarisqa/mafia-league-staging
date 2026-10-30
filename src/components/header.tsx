@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Logo } from "@/components/logo";
 import { NAV_ITEMS, isActive } from "@/lib/nav";
+import { LanguageSwitch, useTranslation } from "./locale-provider";
 
 export function Header({ authBar, authMenu }: { authBar: ReactNode; authMenu: ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
 
   const close = () => setOpen(false);
 
@@ -22,23 +24,23 @@ export function Header({ authBar, authMenu }: { authBar: ReactNode; authMenu: Re
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-canvas/90 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
         <Logo />
 
-        <nav aria-label="Основная навигация" className="hidden h-full lg:block">
+        <nav aria-label={t("navigation")} className="hidden h-full xl:block">
           <ul className="flex h-full items-center gap-1">
-            {NAV_ITEMS.map(({ href, label }) => {
+            {NAV_ITEMS.map(({ href, key }) => {
               const active = isActive(pathname, href);
               return (
                 <li key={href} className="h-full">
                   <Link
                     href={href}
                     aria-current={active ? "page" : undefined}
-                    className={`relative flex h-full items-center px-4 text-sm transition-colors hover:text-text ${
+                    className={`relative flex h-full items-center px-3 text-sm transition-colors hover:text-text ${
                       active ? "text-text" : "text-muted"
                     }`}
                   >
-                    {label}
+                    {t(key)}
                     {active && (
                       <span className="absolute inset-x-4 bottom-0 h-0.5 bg-accent" />
                     )}
@@ -50,11 +52,12 @@ export function Header({ authBar, authMenu }: { authBar: ReactNode; authMenu: Re
         </nav>
 
         <div className="flex items-center gap-3">
+          <div className="hidden xl:block"><LanguageSwitch /></div>
           {authBar}
           <button
             type="button"
-            className="inline-flex size-11 items-center justify-center rounded-control border border-border bg-surface lg:hidden"
-            aria-label={open ? "Закрыть меню" : "Открыть меню"}
+            className="inline-flex size-11 items-center justify-center rounded-control border border-border bg-surface xl:hidden"
+            aria-label={t(open ? "closeMenu" : "openMenu")}
             aria-expanded={open}
             aria-controls="mobile-menu"
             onClick={() => setOpen((v) => !v)}
@@ -73,11 +76,11 @@ export function Header({ authBar, authMenu }: { authBar: ReactNode; authMenu: Re
       {open && (
         <nav
           id="mobile-menu"
-          aria-label="Мобильная навигация"
-          className="border-t border-border bg-canvas lg:hidden"
+          aria-label={t("mobileNavigation")}
+          className="border-t border-border bg-canvas xl:hidden"
         >
           <ul className="mx-auto flex max-w-7xl flex-col px-4 py-2 sm:px-6">
-            {NAV_ITEMS.map(({ href, label }) => {
+            {NAV_ITEMS.map(({ href, key }) => {
               const active = isActive(pathname, href);
               return (
                 <li key={href}>
@@ -91,12 +94,13 @@ export function Header({ authBar, authMenu }: { authBar: ReactNode; authMenu: Re
                         : "border-transparent text-muted hover:text-text"
                     }`}
                   >
-                    {label}
+                    {t(key)}
                   </Link>
                 </li>
               );
             })}
             <li onClick={close}>{authMenu}</li>
+            <li className="px-4 py-2"><LanguageSwitch /></li>
           </ul>
         </nav>
       )}

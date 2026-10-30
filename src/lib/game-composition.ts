@@ -4,6 +4,7 @@ export type Composition = {
   seated: number;
   counts: Record<RoleKey, number>;
   hostAtTable: boolean;
+  hostAssigned: boolean;
   hasWinner: boolean;
 };
 
@@ -29,6 +30,7 @@ export function summarize(get: (name: string) => string, total: number): Composi
   return {
     seated: players.size,
     counts,
+    hostAssigned: !!host,
     hostAtTable: !!host && players.has(host),
     hasWinner: !!get("winner"),
   };
@@ -40,6 +42,7 @@ export function blocker(c: Composition, total: number): string | null {
   if (c.seated < total) return `Заполнено мест: ${c.seated} из ${total}`;
   const wrong = ROLES.some((r) => c.counts[r] !== want[r]);
   if (wrong) return "Исправьте набор ролей (подсвечен красным)";
+  if (!c.hostAssigned) return "Назначьте отдельного ведущего";
   if (c.hostAtTable) return "Ведущий не может сидеть за столом";
   if (!c.hasWinner) return "Выберите победителя";
   return null;

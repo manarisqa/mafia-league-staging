@@ -1,0 +1,10 @@
+{
+  "siteVersion": 33,
+  "commit": "a4e6cbc1bc486e97915043779f3ba89a051cfa10",
+  "files": {
+    "model.ts": "1adac23c3fabb53a2f293eeaf316ab8379c64e2f6cdf85e14ce6e3a809ce39da",
+    "referee-protocol.ts": "232a8f9c8a695646ab3de6467b530b6e6e1724b2e5745ba995de7987c87f1829"
+  },
+  "frozenFormulaSHA256": "9b0acb130f3cb4da8151b4cc1d7f758c6e5d180b13ce2086c2fe2df5ad67dcb6",
+  "baselineSHA256": "1e95b4327f9886af738d4f635256a848a312b48e4fa9ad859a6eb14c928614a3"
+}

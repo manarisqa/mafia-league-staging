@@ -9,6 +9,7 @@ import {
 } from "@/app/admin/evenings/actions";
 import type { AdminEvening, AdminSignup } from "@/lib/admin-data";
 import { EVENING_STATUS_LABEL, SIGNUP_STATUS_LABEL, isoToViennaLocal } from "@/lib/format";
+import { RevisionField } from "@/components/form-revision";
 import { keepFormSubmit } from "@/lib/keep-form";
 
 const field =
@@ -30,15 +31,24 @@ function Message({ state }: { state: { ok?: boolean; message?: string } }) {
 export function EveningForm({
   evening,
   players,
+  seasons,
 }: {
   evening?: AdminEvening;
   players: PlayerOption[];
+  seasons: PlayerOption[];
 }) {
   const [state, action, pending] = useActionState(saveEvening, {});
 
   return (
     <form onSubmit={keepFormSubmit(action)} className="space-y-4">
       {evening && <input type="hidden" name="id" value={evening.id} />}
+      <RevisionField initial={evening?.revision ?? 0} state={state} />
+      <label className="block text-sm text-muted">Сезон (нужен для League Skill)
+        <select name="season_id" defaultValue={evening ? evening.season_id ?? "" : seasons[0]?.id ?? ""} className={`mt-1 ${field}`}>
+          <option value="">Без сезона — только история</option>
+          {seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
+        </select>
+      </label>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm text-muted">
           Дата и время (время Граца)
@@ -111,7 +121,7 @@ export function EveningForm({
   );
 }
 
-export function DeleteEveningButton({ id }: { id: string }) {
+export function DeleteEveningButton({ id, revision }: { id: string; revision: number }) {
   const [state, action, pending] = useActionState(deleteEvening, {});
   return (
     <form
@@ -121,6 +131,7 @@ export function DeleteEveningButton({ id }: { id: string }) {
       }}
     >
       <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="revision" value={revision} />
       <button type="submit" disabled={pending} className="min-h-11 text-sm text-error hover:underline disabled:opacity-60">
         Удалить вечер
       </button>
@@ -149,6 +160,7 @@ export function SignupAddForm({
     <div>
       <form onSubmit={keepFormSubmit(action)} className="grid gap-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
         <input type="hidden" name="evening_id" value={eveningId} />
+        <input type="hidden" name="revision" value={0} />
         <label className="block text-sm text-muted">
           Игрок
           <select name="player_id" required defaultValue="" className={`mt-1 ${field}`}>
@@ -192,6 +204,7 @@ export function SignupRow({ eveningId, signup }: { eveningId: string; signup: Ad
         <div className="flex flex-wrap items-center gap-2">
           <form onSubmit={keepFormSubmit(saveAction)} className="flex items-center gap-2">
             <input type="hidden" name="evening_id" value={eveningId} />
+            <RevisionField initial={signup.revision} state={saveState} />
             <input type="hidden" name="player_id" value={signup.player_id} />
             <select
               name="status"
@@ -211,6 +224,7 @@ export function SignupRow({ eveningId, signup }: { eveningId: string; signup: Ad
           </form>
           <form action={removeAction}>
             <input type="hidden" name="evening_id" value={eveningId} />
+            <RevisionField initial={signup.revision} state={saveState} />
             <input type="hidden" name="player_id" value={signup.player_id} />
             <button type="submit" disabled={removing} className="min-h-11 px-2 text-sm text-error hover:underline disabled:opacity-60">
               Убрать

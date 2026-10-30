@@ -1,0 +1,504 @@
+{
+  "revision": 23,
+  "players": [
+    {
+      "id": "5088c090-5a7c-4199-87ce-b199ea6bd39e",
+      "name": "obst-gemüse",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P001",
+      "name": "manarisqa",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P002",
+      "name": "Vovcher",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P003",
+      "name": "мимо",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P004",
+      "name": "Весна",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P005",
+      "name": "Пешка",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P006",
+      "name": "Шахматистка",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P007",
+      "name": "Император",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P008",
+      "name": "Кассиопея",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P009",
+      "name": "Паук",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P010",
+      "name": "Петя-Двери",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P011",
+      "name": "Феррарити",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P012",
+      "name": "Тайна",
+      "active": true,
+      "rev": 1
+    },
+    {
+      "id": "P013",
+      "name": "MP",
+      "active": true,
+      "rev": 1
+    }
+  ],
+  "seasons": [
+    {
+      "id": "season-1",
+      "name": "Сезон 1",
+      "archived": false,
+      "rev": 1
+    }
+  ],
+  "sessions": [
+    {
+      "id": "034361d0-da7f-459a-bcf4-946fe9a2804d",
+      "name": "1 вечер",
+      "date": "2026-09-19",
+      "seasonId": "season-1",
+      "attendees": [
+        "P001",
+        "P002",
+        "P005",
+        "P006",
+        "P007",
+        "P009",
+        "P010",
+        "P011",
+        "P012",
+        "P013",
+        "5088c090-5a7c-4199-87ce-b199ea6bd39e"
+      ],
+      "closed": true,
+      "rev": 8
+    },
+    {
+      "id": "65373fac-ba24-4895-b5d5-aa52eee794cb",
+      "name": "Вечер 2",
+      "date": "2026-09-21",
+      "seasonId": "season-1",
+      "attendees": [
+        "P001",
+        "P002",
+        "P004",
+        "P005",
+        "P006",
+        "P007",
+        "P009",
+        "P010",
+        "P011",
+        "P003",
+        "5088c090-5a7c-4199-87ce-b199ea6bd39e"
+      ],
+      "closed": false,
+      "deleted": true,
+      "rev": 2
+    },
+    {
+      "id": "d41a56b9-884e-413d-90f8-39cc56c78e41",
+      "name": "Вечер 2",
+      "date": "2026-09-20",
+      "seasonId": "season-1",
+      "attendees": [
+        "5088c090-5a7c-4199-87ce-b199ea6bd39e",
+        "P001",
+        "P002",
+        "P003",
+        "P004",
+        "P005",
+        "P006",
+        "P007",
+        "P008",
+        "P009",
+        "P010",
+        "P011",
+        "P012",
+        "P013"
+      ],
+      "closed": false,
+      "deleted": true,
+      "rev": 2
+    }
+  ],
+  "games": [
+    {
+      "format": "classic10",
+      "details": {
+        "firstNight": {
+          "status": "killed",
+          "targetPlayerId": "P001"
+        },
+        "checks": [
+          {
+            "id": "cd811918-fe5a-4824-826f-3ddea5b56e60",
+            "kind": "sheriff_check",
+            "targetPlayerId": "P001",
+            "result": "red",
+            "source": "manual",
+            "confidence": 1,
+            "verifiedByAdmin": true,
+            "round": 1
+          },
+          {
+            "id": "924820bc-4644-4277-a975-3b1be8633676",
+            "kind": "don_check",
+            "targetPlayerId": "P007",
+            "result": "sheriff",
+            "source": "manual",
+            "confidence": 1,
+            "verifiedByAdmin": true,
+            "round": 1
+          }
+        ]
+      },
+      "id": "9a26c406-0766-4273-bc83-47caf13f7027",
+      "sessionId": "034361d0-da7f-459a-bcf4-946fe9a2804d",
+      "number": 1,
+      "winner": "red",
+      "type": "normal",
+      "reason": "ничего не исправил",
+      "players": [
+        {
+          "playerId": "P005",
+          "seat": 1,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P010",
+          "seat": 2,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P013",
+          "seat": 3,
+          "role": "mafia",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P001",
+          "seat": 4,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P006",
+          "seat": 5,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P009",
+          "seat": 6,
+          "role": "don",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P002",
+          "seat": 7,
+          "role": "mafia",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P011",
+          "seat": 8,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P012",
+          "seat": 9,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P007",
+          "seat": 10,
+          "role": "sheriff",
+          "fouls": 0,
+          "removed": false
+        }
+      ],
+      "voided": false,
+      "legacy": false,
+      "modelVersion": "team-logit-v1",
+      "rulesVersion": "club-v1",
+      "createdAt": "2026-09-19T19:48:16.217Z",
+      "rev": 3,
+      "eligible": true,
+      "eligibilityReason": ""
+    },
+    {
+      "format": "classic10",
+      "details": {
+        "firstNight": {
+          "status": "unknown"
+        }
+      },
+      "id": "e816cdee-1119-40a9-b5ce-71ff9946b79c",
+      "sessionId": "65373fac-ba24-4895-b5d5-aa52eee794cb",
+      "number": 1,
+      "winner": "black",
+      "type": "normal",
+      "reason": "",
+      "players": [
+        {
+          "playerId": "P007",
+          "seat": 1,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P004",
+          "seat": 2,
+          "role": "don",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P005",
+          "seat": 3,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P002",
+          "seat": 4,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P001",
+          "seat": 5,
+          "role": "mafia",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P006",
+          "seat": 6,
+          "role": "mafia",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P009",
+          "seat": 7,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P010",
+          "seat": 8,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P011",
+          "seat": 9,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P003",
+          "seat": 10,
+          "role": "sheriff",
+          "fouls": 0,
+          "removed": false
+        }
+      ],
+      "voided": false,
+      "legacy": false,
+      "modelVersion": "team-logit-v1",
+      "rulesVersion": "club-v1",
+      "createdAt": "2026-09-21T18:28:01.826Z",
+      "rev": 1,
+      "eligible": true,
+      "eligibilityReason": ""
+    },
+    {
+      "format": "classic10",
+      "details": {
+        "checks": [
+          {
+            "id": "fa67c7c3-c9b3-4119-93a6-3abb8e29df93",
+            "kind": "sheriff_check",
+            "targetPlayerId": "P010",
+            "result": "red",
+            "source": "manual",
+            "confidence": 1,
+            "verifiedByAdmin": true,
+            "round": 1
+          },
+          {
+            "id": "2bce0e81-d292-453c-8bdb-b7120cbdd620",
+            "kind": "sheriff_check",
+            "targetPlayerId": "P009",
+            "result": "red",
+            "source": "manual",
+            "confidence": 1,
+            "verifiedByAdmin": true,
+            "round": 2
+          },
+          {
+            "id": "24423597-ecdc-4d2a-8caf-a47f44caa4cc",
+            "kind": "sheriff_check",
+            "targetPlayerId": "P012",
+            "result": "red",
+            "source": "manual",
+            "confidence": 1,
+            "verifiedByAdmin": true,
+            "round": 3
+          }
+        ]
+      },
+      "id": "feac019b-21d5-463f-9fe9-6e76be1b3447",
+      "sessionId": "034361d0-da7f-459a-bcf4-946fe9a2804d",
+      "number": 2,
+      "winner": "red",
+      "type": "normal",
+      "reason": "Уточнение данных",
+      "players": [
+        {
+          "playerId": "P001",
+          "seat": 1,
+          "role": "sheriff",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P010",
+          "seat": 2,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P011",
+          "seat": 3,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P005",
+          "seat": 4,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P012",
+          "seat": 5,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P007",
+          "seat": 6,
+          "role": "mafia",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P013",
+          "seat": 7,
+          "role": "don",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P009",
+          "seat": 8,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "P006",
+          "seat": 9,
+          "role": "mafia",
+          "fouls": 0,
+          "removed": false
+        },
+        {
+          "playerId": "5088c090-5a7c-4199-87ce-b199ea6bd39e",
+          "seat": 10,
+          "role": "civilian",
+          "fouls": 0,
+          "removed": false
+        }
+      ],
+      "voided": false,
+      "legacy": false,
+      "modelVersion": "team-logit-v1",
+      "rulesVersion": "club-v1",
+      "createdAt": "2026-09-19T19:51:49.469Z",
+      "rev": 4,
+      "eligible": true,
+      "eligibilityReason": ""
+    }
+  ],
+  "settings": []
+}

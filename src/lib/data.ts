@@ -1,450 +1,118 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { DEMO_EVENING, DEMO_RECENT_GAMES, DEMO_TOP_PLAYERS, DEMO_LEAGUE_STATS } from "@/lib/demo";
 import { FORMAT_LABEL, eveningParts, shortDate } from "@/lib/format";
-import {
-  computeStats,
-  ratingHistory,
-  resultFor,
-  sideOf,
-  type FinishedGame,
-  type PlayerStats,
-  type Role,
-  type Winner,
-} from "@/lib/rating";
+import { EMPTY_SNAPSHOT, SnapshotSchema, projectLeague, profileStats, type PlayerStats, type SideStats } from "@/lib/league/core";
+import type { Role, Winner } from "@/lib/rating";
 import { getPublicClient } from "@/lib/supabase";
+export type { SideStats } from "@/lib/league/core";
 
-/** Показывать ли пометку «Демонстрационные данные». Выключите, когда внесёте настоящих игроков. */
 export function showDemoBadge() {
   return !getPublicClient() || process.env.NEXT_PUBLIC_SHOW_DEMO_BADGE === "true";
 }
-
-export type Player = {
-  id: string;
-  name: string;
-  status: "club_member" | "newbie";
-};
-
+export type Player = { id: string; name: string; status: "club_member" | "newbie" };
 export type RatedPlayer = Player & PlayerStats;
 
-export type NextEvening = {
-  id: string | null; // null — демо-режим без базы
-  weekday: string;
-  day: string;
-  month: string;
-  time: string;
-  place: string;
-  capacity: number;
-  signedUp: number;
-  hostName: string | null;
-  participants: string[];
-};
-
-export type RecentGame = { id: string; date: string; format: string; status: string };
-
-function check<T>(res: { data: T | null; error: { message: string } | null }, what: string): T {
-  if (res.error || res.data === null) {
-    throw new Error(`Не удалось загрузить ${what}: ${res.error?.message ?? "нет данных"}`);
-  }
-  return res.data;
-}
-
-async function loadPlayers(): Promise<Player[]> {
-  const db = getPublicClient();
-  if (!db) return [];
-  const rows = check(
-    await db.from("players").select("id, display_name, status").order("display_name"),
-    "игроков",
-  );
-  return rows.map((r) => ({ id: r.id, name: r.display_name, status: r.status }));
-}
-
-async function loadFinishedGames() {
-  const db = getPublicClient();
-  if (!db) return [];
-  const rows = check(
-    await db
-      .from("games")
-      .select("id, game_no, evening_id, winner, format, finished_at, evenings(starts_at), game_players(player_id, role)")
-      .eq("status", "finished")
-      .order("finished_at", { ascending: false }),
-    "партии",
-  );
-  return rows.map((g) => {
-    const ev = Array.isArray(g.evenings) ? g.evenings[0] : g.evenings;
-    return {
-      id: g.id as string,
-      no: g.game_no as number,
-      eveningId: g.evening_id as string,
-      eveningStartsAt: (ev?.starts_at ?? g.finished_at) as string,
-      format: g.format as keyof typeof FORMAT_LABEL,
-      date: (g.finished_at ?? ev?.starts_at) as string,
-      game: {
-        winner: g.winner as Winner,
-        players: g.game_players as { player_id: string; role: Role }[],
-      } satisfies FinishedGame,
-    };
-  });
-}
-
-/** Игроки с рейтингом, лучшие сверху. */
-export async function getRating(): Promise<RatedPlayer[]> {
+/** Only anonymous credentials enter the shared cache. SQL returns one public
+ * MVCC snapshot: no private notes, account IDs or unfinished roles. */
+async function getLeague() {
   "use cache";
-  cacheLife("minutes");
-  cacheTag("club");
-
-  const [players, games] = await Promise.all([loadPlayers(), loadFinishedGames()]);
-  const stats = computeStats(players.map((p) => p.id), games.map((g) => g.game));
-  return players
-    .map((p) => ({ ...p, ...stats.get(p.id)! }))
-    .sort((a, b) => b.rating - a.rating || b.games - a.games || a.name.localeCompare(b.name, "ru"));
+  cacheLife("minutes"); cacheTag("club");
+  const db = getPublicClient();
+  if (!db) return projectLeague(EMPTY_SNAPSHOT);
+  const { data, error } = await db.rpc("league_snapshot");
+  if (error) throw new Error(`Не удалось загрузить лигу. Проверьте миграцию League Core: ${error.message}`);
+  return projectLeague(SnapshotSchema.parse(data));
 }
-
+export async function getRating(): Promise<RatedPlayer[]> {
+  const league = await getLeague();
+  return league.snapshot.players.map((p) => ({ id: p.id, name: p.display_name, status: p.status, ...league.stats.get(p.id)! }))
+    .sort((a, b) => b.rating - a.rating || b.skillGames - a.skillGames || a.name.localeCompare(b.name, "ru"));
+}
+export type NextEvening = {
+  id: string | null; weekday: string; day: string; month: string; time: string; place: string;
+  capacity: number; signedUp: number; hostName: string | null; participants: string[];
+};
 export async function getNextEvening(): Promise<NextEvening | null> {
   "use cache";
-  cacheLife("minutes");
-  cacheTag("club");
-
+  cacheLife("minutes"); cacheTag("club");
   const db = getPublicClient();
-  if (!db) {
-    return { ...DEMO_EVENING, id: null, hostName: "Игрок 11" };
-  }
-
-  const rows = check(
-    await db
-      .from("evenings")
-      .select("id, starts_at, place, capacity, host:players!evenings_host_player_id_fkey(display_name)")
-      .eq("status", "planned")
-      .order("starts_at", { ascending: true })
-      .limit(1),
-    "ближайший вечер",
-  );
-  const ev = rows[0];
+  if (!db) return { ...DEMO_EVENING, id: null, hostName: "Игрок 11" };
+  const { snapshot } = await getLeague();
+  const ev = snapshot.evenings.filter((e) => e.status === "planned" && Date.parse(e.starts_at) > Date.now())
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
   if (!ev) return null;
-
-  const [signups, players] = await Promise.all([
-    db.from("evening_participants").select("player_id").eq("evening_id", ev.id),
-    loadPlayers(),
-  ]);
-  const ids = new Set(check(signups, "участников").map((s) => s.player_id));
-  const names = players.filter((p) => ids.has(p.id)).map((p) => p.name);
-  const host = Array.isArray(ev.host) ? ev.host[0] : ev.host;
-
-  return {
-    id: ev.id as string,
-    ...eveningParts(ev.starts_at),
-    place: ev.place,
-    capacity: ev.capacity,
-    signedUp: names.length,
-    hostName: host?.display_name ?? null,
-    participants: names,
-  };
+  const { data, error } = await db.from("evening_participants").select("player_id").eq("evening_id", ev.id);
+  if (error) throw new Error(`Не удалось загрузить участников: ${error.message}`);
+  const ids = new Set((data ?? []).map((p) => p.player_id));
+  const participants = snapshot.players.filter((p) => ids.has(p.id)).map((p) => p.display_name);
+  return { id: ev.id, ...eveningParts(ev.starts_at), place: ev.place, capacity: ev.capacity,
+    signedUp: participants.length, participants,
+    hostName: snapshot.players.find((p) => p.id === ev.host_player_id)?.display_name ?? null };
 }
-
+export type RecentGame = { id: string; date: string; format: string; status: string };
 export async function getRecentGames(limit = 3): Promise<RecentGame[]> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag("club");
-
-  if (!getPublicClient()) {
-    return DEMO_RECENT_GAMES.map((g, i) => ({ id: String(i), ...g }));
-  }
-  const games = await loadFinishedGames();
-  return games.slice(0, limit).map((g) => ({
-    id: g.id,
-    date: shortDate(g.date),
-    format: FORMAT_LABEL[g.format],
-    status: "Игра завершена",
-  }));
+  if (!getPublicClient()) return DEMO_RECENT_GAMES.slice(0, limit).map((g, i) => ({ id: String(i), ...g }));
+  const { games } = await getLeague();
+  return [...games].reverse().slice(0, limit).map((g) => ({ id: g.id, date: shortDate(g.played_at), format: FORMAT_LABEL[g.format], status: "Игра завершена" }));
 }
-
 export async function getLeagueStats(): Promise<{ value: string; label: string }[]> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag("club");
-
-  const db = getPublicClient();
-  if (!db) return DEMO_LEAGUE_STATS;
-
-  const [players, evenings, games] = await Promise.all([
-    db.from("players").select("id", { count: "exact", head: true }),
-    db.from("evenings").select("id", { count: "exact", head: true }).eq("status", "finished"),
-    db.from("games").select("id", { count: "exact", head: true }).eq("status", "finished"),
-  ]);
+  if (!getPublicClient()) return DEMO_LEAGUE_STATS;
+  const { snapshot, games } = await getLeague();
   return [
-    { value: String(players.count ?? 0), label: "Игроков" },
-    { value: String(evenings.count ?? 0), label: "Проведено вечеров" },
-    { value: String(games.count ?? 0), label: "Сыграно партий" },
+    { value: String(snapshot.players.length), label: "Игроков" },
+    { value: String((await getHistory()).totals.evenings), label: "Вечеров в истории" },
+    { value: String(games.length), label: "Сыграно партий" },
   ];
 }
-
-export async function getTopPlayers(limit = 3): Promise<{ place: number; name: string; rating: number }[]> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag("club");
-
+export async function getTopPlayers(limit = 3): Promise<{ place: number; name: string; rating: number; provisional?: boolean }[]> {
   if (!getPublicClient()) return DEMO_TOP_PLAYERS;
-  const rated = await getRating();
-  return rated
-    .filter((p) => p.games > 0)
-    .slice(0, limit)
-    .map((p, i) => ({ place: i + 1, name: p.name, rating: p.rating }));
+  return (await getRating()).filter((p) => p.skillGames > 0).slice(0, limit)
+    .map((p, i) => ({ place: i + 1, name: p.name, rating: p.rating, provisional: p.provisional }));
 }
-
-// ------------------------------------------------------------------ история
-
-export type HistoryGame = {
-  id: string;
-  no: number;
-  format: keyof typeof FORMAT_LABEL;
-  winner: Winner;
-  players: number;
-};
-
-export type HistoryEvening = {
-  id: string;
-  number: number; // порядковый номер вечера в клубе, с 1
-  startsAt: string;
-  place: string;
-  seasonId: string | null;
-  participants: number; // разных игроков за столом за вечер
-  games: HistoryGame[];
-};
-
-export type SeasonSummary = {
-  id: string;
-  name: string;
-  startsOn: string;
-  endsOn: string | null;
-  evenings: number;
-  games: number;
-  players: number;
-  redWins: number;
-  blackWins: number;
-  draws: number;
-};
-
+export type HistoryGame = { id: string; no: number; format: keyof typeof FORMAT_LABEL; winner: Winner; players: number; playedAt: string; skillReason: string };
+export type HistoryEvening = { id: string; number: number; startsAt: string; place: string; seasonId: string | null; participants: number; games: HistoryGame[] };
+export type SeasonSummary = { id: string; name: string; startsOn: string; endsOn: string | null; evenings: number; games: number; players: number; redWins: number; blackWins: number; draws: number };
 export type HistoryTotals = Omit<SeasonSummary, "id" | "name" | "startsOn" | "endsOn">;
-
-function summarize(evenings: HistoryEvening[], playerIds: Map<string, Set<string>>): HistoryTotals {
-  const players = new Set<string>();
-  const t: HistoryTotals = { evenings: evenings.length, games: 0, players: 0, redWins: 0, blackWins: 0, draws: 0 };
-  for (const e of evenings) {
-    for (const id of playerIds.get(e.id) ?? []) players.add(id);
-    for (const g of e.games) {
-      t.games += 1;
-      if (g.winner === "red") t.redWins += 1;
-      else if (g.winner === "black") t.blackWins += 1;
-      else t.draws += 1;
-    }
-  }
-  t.players = players.size;
-  return t;
+function summarize(evenings: HistoryEvening[], ids: Map<string, Set<string>>): HistoryTotals {
+  const games = evenings.flatMap((e) => e.games);
+  return { evenings: evenings.length, games: games.length, players: new Set(evenings.flatMap((e) => [...ids.get(e.id) ?? []])).size,
+    redWins: games.filter((g) => g.winner === "red").length, blackWins: games.filter((g) => g.winner === "black").length, draws: games.filter((g) => g.winner === "draw").length };
 }
-
-/** Проведённые вечера с завершёнными партиями (новые сверху), сезоны и общая сводка. */
-export async function getHistory(): Promise<{
-  evenings: HistoryEvening[];
-  seasons: SeasonSummary[];
-  totals: HistoryTotals;
-}> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag("club");
-
-  const empty = { evenings: [], seasons: [], totals: summarize([], new Map()) };
-  const db = getPublicClient();
-  if (!db) return empty;
-
-  const [eveningRows, seasonRows] = await Promise.all([
-    db
-      .from("evenings")
-      .select("id, starts_at, place, season_id, games(id, game_no, format, status, winner, game_players(player_id))")
-      .eq("status", "finished")
-      .order("starts_at", { ascending: true }),
-    db.from("seasons").select("id, name, starts_on, ends_on").order("starts_on", { ascending: false }),
-  ]);
-
-  const playerIds = new Map<string, Set<string>>();
-  const evenings: HistoryEvening[] = check(eveningRows, "историю вечеров").map((e, i) => {
-    const ids = new Set<string>();
-    const games = (e.games as {
-      id: string;
-      game_no: number;
-      format: HistoryGame["format"];
-      status: string;
-      winner: Winner | null;
-      game_players: { player_id: string }[];
-    }[])
-      .filter((g) => g.status === "finished" && g.winner)
-      .sort((a, b) => a.game_no - b.game_no)
-      .map((g) => {
-        for (const p of g.game_players) ids.add(p.player_id);
-        return { id: g.id, no: g.game_no, format: g.format, winner: g.winner!, players: g.game_players.length };
-      });
-    playerIds.set(e.id, ids);
-    return {
-      id: e.id as string,
-      number: i + 1,
-      startsAt: e.starts_at as string,
-      place: e.place as string,
-      seasonId: (e.season_id as string | null) ?? null,
-      participants: ids.size,
-      games,
-    };
-  });
-  evenings.reverse();
-
-  const seasons: SeasonSummary[] = check(seasonRows, "сезоны").map((s) => ({
-    id: s.id as string,
-    name: s.name as string,
-    startsOn: s.starts_on as string,
-    endsOn: (s.ends_on as string | null) ?? null,
-    ...summarize(evenings.filter((e) => e.seasonId === s.id), playerIds),
-  }));
-
-  return { evenings, seasons, totals: summarize(evenings, playerIds) };
+export async function getHistory(): Promise<{ evenings: HistoryEvening[]; seasons: SeasonSummary[]; totals: HistoryTotals }> {
+  const league = await getLeague();
+  const { snapshot, games } = league;
+  const ids = new Map<string, Set<string>>();
+  const reasons = new Map(league.state.games.map((g) => [g.id, g.eligibilityReason]));
+  const evenings = snapshot.evenings.filter((e) => e.status !== "cancelled" && (e.status === "finished" || games.some((g) => g.evening_id === e.id)))
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.id.localeCompare(b.id))
+    .map((e, i) => {
+      const played = games.filter((g) => g.evening_id === e.id).sort((a, b) => a.game_no - b.game_no);
+      const players = new Set(played.flatMap((g) => g.seats.map((p) => p.player_id))); ids.set(e.id, players);
+      return { id: e.id, number: i + 1, startsAt: e.starts_at, place: e.place, seasonId: e.season_id, participants: players.size,
+        games: played.map((g) => ({ id: g.id, no: g.game_no, format: g.format, winner: g.winner!, players: g.seats.length, playedAt: g.played_at, skillReason: reasons.get(g.id) ?? "" })) };
+    }).reverse();
+  return { evenings, seasons: snapshot.seasons.map((s) => ({ id: s.id, name: s.name, startsOn: s.starts_on, endsOn: s.ends_on,
+    ...summarize(evenings.filter((e) => e.seasonId === s.id), ids) })), totals: summarize(evenings, ids) };
 }
-
-export type GameProtocol = {
-  id: string;
-  no: number;
-  format: keyof typeof FORMAT_LABEL;
-  winner: Winner;
-  finishedAt: string | null;
-  eveningId: string;
-  eveningStartsAt: string;
-  hostName: string | null;
-  seats: { seat: number; playerId: string; name: string; role: Role }[];
-};
-
-/** Протокол одной завершённой партии. null — партии нет или она ещё не завершена. */
+export type GameProtocol = { id: string; no: number; format: keyof typeof FORMAT_LABEL; winner: Winner; finishedAt: string | null; eveningId: string; eveningStartsAt: string; hostName: string | null; skillReason: string;
+  seats: { seat: number; playerId: string; name: string; role: Role; fouls: number; removed: boolean }[] };
 export async function getGameProtocol(id: string): Promise<GameProtocol | null> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag("club");
-
-  const db = getPublicClient();
-  if (!db) return null;
-
-  const res = await db
-    .from("games")
-    .select(
-      "id, game_no, format, status, winner, finished_at, evening_id, evenings(starts_at), " +
-        "host:players!games_host_player_id_fkey(display_name), " +
-        "game_players(seat, role, player_id, player:players(display_name))",
-    )
-    .eq("id", id)
-    .maybeSingle();
-  if (res.error) throw new Error(`Не удалось загрузить партию: ${res.error.message}`);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- строка из select без типов базы
-  const g = res.data as any;
-  if (!g || g.status !== "finished" || !g.winner) return null;
-
-  const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
-  return {
-    id: g.id,
-    no: g.game_no,
-    format: g.format,
-    winner: g.winner,
-    finishedAt: g.finished_at,
-    eveningId: g.evening_id,
-    eveningStartsAt: one<{ starts_at: string }>(g.evenings)?.starts_at ?? g.finished_at,
-    hostName: one<{ display_name: string }>(g.host)?.display_name ?? null,
-    seats: (g.game_players as { seat: number; role: Role; player_id: string; player: unknown }[])
-      .map((p) => ({
-        seat: p.seat,
-        playerId: p.player_id,
-        role: p.role,
-        name: one(p.player as { display_name: string } | null)?.display_name ?? "—",
-      }))
-      .sort((a, b) => a.seat - b.seat),
-  };
+  const league = await getLeague();
+  const g = league.games.find((g) => g.id === id);
+  if (!g) return null;
+  const names = new Map(league.snapshot.players.map((p) => [p.id, p.display_name]));
+  return { id: g.id, no: g.game_no, format: g.format, winner: g.winner!, finishedAt: g.finished_at, eveningId: g.evening_id,
+    eveningStartsAt: g.played_at, hostName: names.get(g.host_player_id!) ?? null,
+    skillReason: league.state.games.find((x) => x.id === id)?.eligibilityReason ?? "",
+    seats: g.seats.map((p) => ({ seat: p.seat, playerId: p.player_id, name: names.get(p.player_id) ?? "—", role: p.role, fouls: p.fouls, removed: p.removed })) };
 }
-
-// ------------------------------------------------------------ профиль игрока
-
-export type SideStats = { games: number; wins: number };
-
-export type PlayerProfile = Player & {
-  joinedOn: string | null;
-  rating: number;
-  ratingPoints: number[]; // рейтинг до первой партии и после каждой следующей
-  games: number;
-  wins: number;
-  losses: number;
-  draws: number;
-  evenings: number;
-  sides: Record<"red" | "black", SideStats>;
-  roles: Record<Role, SideStats>;
-  history: {
-    gameId: string;
-    no: number;
-    startsAt: string;
-    format: keyof typeof FORMAT_LABEL;
-    role: Role;
-    result: "win" | "loss" | "draw";
-  }[]; // новые сверху
-};
-
-/** Профиль игрока со статистикой по завершённым партиям. null — такого игрока нет. */
+export type PlayerProfile = Player & PlayerStats & {
+  joinedOn: string | null; evenings: number; sides: Record<"red" | "black", SideStats>; roles: Record<Role, SideStats>;
+} & ReturnType<typeof profileStats>;
 export async function getPlayerProfile(id: string): Promise<PlayerProfile | null> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag("club");
-
-  const db = getPublicClient();
-  if (!db) return null;
-
-  const [playerRes, allGames] = await Promise.all([
-    db.from("players").select("id, display_name, status, joined_on").eq("id", id).maybeSingle(),
-    loadFinishedGames(),
-  ]);
-  if (playerRes.error) throw new Error(`Не удалось загрузить игрока: ${playerRes.error.message}`);
-  const p = playerRes.data;
+  const league = await getLeague();
+  const p = league.snapshot.players.find((p) => p.id === id);
   if (!p) return null;
-
-  const played = allGames
-    .flatMap((g) => {
-      const seat = g.game.players.find((x) => x.player_id === id);
-      return seat ? [{ ...g, role: seat.role, result: resultFor(seat.role, g.game.winner) }] : [];
-    })
-    .sort((a, b) => a.eveningStartsAt.localeCompare(b.eveningStartsAt) || a.no - b.no);
-
-  const empty = () => ({ games: 0, wins: 0 });
-  const sides = { red: empty(), black: empty() };
-  const roles = { civilian: empty(), sheriff: empty(), don: empty(), mafia: empty() };
-  for (const g of played) {
-    const win = g.result === "win" ? 1 : 0;
-    sides[sideOf(g.role)].games += 1;
-    sides[sideOf(g.role)].wins += win;
-    roles[g.role].games += 1;
-    roles[g.role].wins += win;
-  }
-  const ratingPoints = ratingHistory(played.map((g) => g.result));
-
-  return {
-    id: p.id,
-    name: p.display_name,
-    status: p.status,
-    joinedOn: p.joined_on ?? null,
-    rating: ratingPoints[ratingPoints.length - 1],
-    ratingPoints,
-    games: played.length,
-    wins: played.filter((g) => g.result === "win").length,
-    losses: played.filter((g) => g.result === "loss").length,
-    draws: played.filter((g) => g.result === "draw").length,
-    evenings: new Set(played.map((g) => g.eveningId)).size,
-    sides,
-    roles,
-    history: played
-      .map((g) => ({
-        gameId: g.id,
-        no: g.no,
-        startsAt: g.eveningStartsAt,
-        format: g.format,
-        role: g.role,
-        result: g.result,
-      }))
-      .reverse(),
-  };
+  return { id: p.id, name: p.display_name, status: p.status, joinedOn: p.joined_on,
+    ...league.stats.get(id)!, ...profileStats(league, id) };
 }

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { WinnerMark } from "@/app/history/history-ui";
+import { SkillValue, SkillChart } from "@/components/skill";
 import { Avatar, Card, DemoBadge } from "@/components/ui";
 import { getPlayerProfile, showDemoBadge, type PlayerProfile, type SideStats } from "@/lib/data";
 import {
@@ -150,7 +151,7 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium">{longDate(g.startsAt)}</span>
                       <span className="block text-sm text-muted">
-                        Партия №{g.no} · {FORMAT_LABEL[g.format]}
+                        Партия №{g.no} · {FORMAT_LABEL[g.format]}{g.skillReason ? ` · ${g.skillReason}` : ""}
                       </span>
                     </span>
                     <span className="text-sm">
@@ -176,49 +177,13 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
 }
 
 function RatingCard({ p }: { p: PlayerProfile }) {
-  return (
-    <Card title="Рейтинг">
-      <div className="grid items-center gap-6 sm:grid-cols-[auto_1fr]">
-        <div>
-          <p className="font-display text-6xl font-bold tabular-nums">{p.rating}</p>
-          <p className="mt-2 max-w-xs text-sm text-muted">
-            Предварительная оценка: 1000 очков и ±25 за каждую победу или поражение.
-          </p>
-        </div>
-        {p.ratingPoints.length > 2 && <RatingChart points={p.ratingPoints} />}
+  return <Card title="League Skill">
+    <div className="grid items-center gap-6 sm:grid-cols-[auto_1fr]">
+      <div><SkillValue stats={p} />
+        <p className="mt-3 max-w-xs text-sm text-muted">team-logit-v1. Short9 не меняет основной Skill.
+          Предварительная оценка: меньше 20 подходящих партий или высокая неопределённость.</p>
       </div>
-    </Card>
-  );
-}
-
-/** Простой график рейтинга по партиям: от старых к новым. */
-function RatingChart({ points }: { points: number[] }) {
-  const W = 320;
-  const H = 120;
-  const PAD = 10;
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const span = Math.max(max - min, 50);
-  const x = (i: number) => PAD + ((W - 2 * PAD) * i) / (points.length - 1);
-  const y = (v: number) => H - PAD - ((H - 2 * PAD) * (v - min)) / span;
-  const line = points.map((v, i) => `${x(i)},${y(v)}`).join(" ");
-  const last = points.length - 1;
-
-  return (
-    <figure>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={`Рейтинг по партиям: от ${points[0]} до ${points[last]}, наименьший ${min}, наибольший ${max}`}
-        className="h-40 w-full"
-      >
-        <polyline points={line} fill="none" stroke="var(--accent-text)" strokeWidth="2" strokeLinejoin="round" />
-        <circle cx={x(last)} cy={y(points[last])} r="4" fill="var(--accent-text)" />
-      </svg>
-      <figcaption className="mt-1 flex justify-between text-xs text-muted">
-        <span>до первой партии</span>
-        <span>сейчас</span>
-      </figcaption>
-    </figure>
-  );
+      <SkillChart points={p.ratingPoints} />
+    </div>
+  </Card>;
 }

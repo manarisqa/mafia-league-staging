@@ -43,7 +43,7 @@ export default async function HistoryGamesPage() {
               <tbody className="divide-y divide-border">
                 {games.map((g) => (
                   <tr key={g.id}>
-                    <td className="px-4 py-1 whitespace-nowrap">{shortDate(g.evening.startsAt)}</td>
+                    <td className="px-4 py-1 whitespace-nowrap">{shortDate(g.playedAt)}</td>
                     <td className="px-4 py-1 text-muted">№{g.evening.number}</td>
                     <td className="px-4 py-1 tabular-nums">{g.no}</td>
                     <td className="px-4 py-1">{FORMAT_LABEL[g.format]}</td>

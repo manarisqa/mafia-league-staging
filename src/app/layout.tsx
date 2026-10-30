@@ -5,6 +5,7 @@ import { Footer } from "@/components/footer";
 import { AuthButton, AuthLinks } from "@/components/auth-button";
 import { Header } from "@/components/header";
 import { Logo } from "@/components/logo";
+import { LocaleBoundary } from "@/components/locale-boundary";
 import "./globals.css";
 
 const ui = Inter({
@@ -32,33 +33,37 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ru" className={`${ui.variable} ${display.variable} h-full antialiased`}>
+    <html lang="ru" suppressHydrationWarning className={`${ui.variable} ${display.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col">
-        {/* Header читает адрес страницы, на динамических адресах это нужно делать в Suspense. */}
-        <Suspense
-          fallback={
-            <header className="h-16 border-b border-border bg-canvas">
-              <div className="mx-auto flex h-full max-w-7xl items-center px-4 sm:px-6">
-                <Logo />
-              </div>
-            </header>
-          }
-        >
-          <Header
-            authBar={
-              <Suspense fallback={<AuthLinks variant="bar" />}>
-                <AuthButton variant="bar" />
-              </Suspense>
+        <Suspense fallback={<div className="p-6" role="status">Mafia League…</div>}>
+        <LocaleBoundary>
+          {/* Header читает адрес страницы, на динамических адресах это нужно делать в Suspense. */}
+          <Suspense
+            fallback={
+              <header className="h-16 border-b border-border bg-canvas">
+                <div className="mx-auto flex h-full max-w-7xl items-center px-4 sm:px-6">
+                  <Logo />
+                </div>
+              </header>
             }
-            authMenu={
-              <Suspense fallback={<AuthLinks variant="menu" />}>
-                <AuthButton variant="menu" />
-              </Suspense>
-            }
-          />
+          >
+            <Header
+              authBar={
+                <Suspense fallback={<AuthLinks variant="bar" />}>
+                  <AuthButton variant="bar" />
+                </Suspense>
+              }
+              authMenu={
+                <Suspense fallback={<AuthLinks variant="menu" />}>
+                  <AuthButton variant="menu" />
+                </Suspense>
+              }
+            />
+          </Suspense>
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </LocaleBoundary>
         </Suspense>
-        <main className="flex-1">{children}</main>
-        <Footer />
       </body>
     </html>
   );

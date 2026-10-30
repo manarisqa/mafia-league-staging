@@ -5,6 +5,7 @@ import { createGame, deleteGame, reopenGame, saveGame } from "@/app/admin/games/
 import type { AdminGame } from "@/lib/admin-data";
 import { FORMAT_LABEL, ROLE_LABEL, WINNER_LABEL } from "@/lib/format";
 import { blocker, expectedFor, summarize, type RoleKey } from "@/lib/game-composition";
+import { RevisionField } from "@/components/form-revision";
 import { keepFormSubmit } from "@/lib/keep-form";
 
 const field =
@@ -105,6 +106,7 @@ export function GameEditor({
   return (
     <form onSubmit={keepFormSubmit(action)} onChange={onChange} className="space-y-6">
       <input type="hidden" name="game_id" value={game.id} />
+      <RevisionField initial={game.revision} state={state} />
 
       <label className="block text-sm text-muted">
         Ведущий (не играет за столом)
@@ -152,12 +154,27 @@ export function GameEditor({
                     </option>
                   ))}
                 </select>
+                <div className="col-span-3 flex flex-wrap items-center gap-4 pl-10 text-sm text-muted">
+                  <label>Фолы <input type="number" name={`seat_${seat}_fouls`} min={0} max={20}
+                    defaultValue={cur?.fouls ?? 0} className={`${field} ml-2 w-20`} /></label>
+                  <label className="flex min-h-11 items-center gap-2"><input type="checkbox"
+                    name={`seat_${seat}_removed`} defaultChecked={cur?.removed ?? false} />Удалён</label>
+                </div>
               </li>
             );
           })}
         </ul>
       </div>
 
+      <label className="block text-sm text-muted">Тип результата
+        <select name="result_type" defaultValue={game.result_type} className={`mt-1 ${field} sm:max-w-sm`}>
+          <option value="normal">Обычный</option><option value="technical">Технический (без League Skill)</option>
+        </select>
+      </label>
+      <label className="block text-sm text-muted">Причина технического результата или удаления
+        <textarea name="result_reason" defaultValue={game.result_reason} maxLength={1000}
+          className="mt-1 w-full rounded-control border border-border bg-elevated p-3 text-text" />
+      </label>
       <label className="block text-sm text-muted">
         Победитель (нужен, чтобы завершить партию)
         <select name="winner" defaultValue={game.winner ?? ""} className={`mt-1 ${field} sm:max-w-sm`}>
@@ -217,7 +234,7 @@ export function GameEditor({
   );
 }
 
-export function ReopenGameButton({ gameId }: { gameId: string }) {
+export function ReopenGameButton({ gameId, revision }: { gameId: string; revision: number }) {
   const [state, action, pending] = useActionState(reopenGame, {});
   return (
     <form
@@ -229,6 +246,7 @@ export function ReopenGameButton({ gameId }: { gameId: string }) {
       }}
     >
       <input type="hidden" name="game_id" value={gameId} />
+      <input type="hidden" name="revision" value={revision} />
       <button
         type="submit"
         disabled={pending}
@@ -241,7 +259,7 @@ export function ReopenGameButton({ gameId }: { gameId: string }) {
   );
 }
 
-export function DeleteGameButton({ gameId }: { gameId: string }) {
+export function DeleteGameButton({ gameId, revision }: { gameId: string; revision: number }) {
   const [state, action, pending] = useActionState(deleteGame, {});
   return (
     <form
@@ -251,6 +269,7 @@ export function DeleteGameButton({ gameId }: { gameId: string }) {
       }}
     >
       <input type="hidden" name="game_id" value={gameId} />
+      <input type="hidden" name="revision" value={revision} />
       <button type="submit" disabled={pending} className="min-h-11 text-sm text-error hover:underline disabled:opacity-60">
         Удалить партию
       </button>

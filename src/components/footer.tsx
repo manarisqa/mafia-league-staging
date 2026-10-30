@@ -1,3 +1,4 @@
+import { Text } from "@/components/locale-provider";
 import Link from "next/link";
 import { Logo } from "@/components/logo";
 import { NAV_ITEMS } from "@/lib/nav";
@@ -9,15 +10,15 @@ export function Footer() {
         <div className="max-w-sm space-y-3">
           <Logo />
           <p className="text-sm text-muted">
-            Сообщество любителей спортивной Мафии в Граце. Новичкам всегда рады.
+            <Text id="footer" />
           </p>
         </div>
         <nav aria-label="Навигация в подвале">
           <ul className="grid grid-cols-2 gap-x-10 gap-y-1 text-sm text-muted">
-            {NAV_ITEMS.map(({ href, label }) => (
+            {NAV_ITEMS.map(({ href, key }) => (
               <li key={href}>
                 <Link href={href} className="inline-flex min-h-11 items-center hover:text-text">
-                  {label}
+                  <Text id={key} />
                 </Link>
               </li>
             ))}
@@ -25,7 +26,7 @@ export function Footer() {
         </nav>
       </div>
       <div className="border-t border-border py-4 text-center text-xs text-muted">
-        © Mafia League · Грац, Австрия
+        © Mafia League · <Text id="location" />
       </div>
     </footer>
   );

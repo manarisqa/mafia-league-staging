@@ -6,10 +6,12 @@ import { keepFormSubmit } from "@/lib/keep-form";
 
 export function LinkAccountForm({
   historicalId,
+  historicalRevision,
   accounts,
 }: {
   historicalId: string;
-  accounts: { id: string; name: string }[];
+  historicalRevision: number;
+  accounts: { id: string; name: string; revision: number }[];
 }) {
   const [state, action, pending] = useActionState(linkAccount, {});
   if (accounts.length === 0) return null;
@@ -27,6 +29,7 @@ export function LinkAccountForm({
         className="flex flex-wrap items-center gap-2"
       >
         <input type="hidden" name="historical" value={historicalId} />
+        <input type="hidden" name="revision" value={historicalRevision} />
         <label className="text-sm text-muted" htmlFor={`acc-${historicalId}`}>
           Привязать аккаунт:
         </label>
@@ -41,7 +44,7 @@ export function LinkAccountForm({
             Выберите зарегистрированного…
           </option>
           {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
+            <option key={a.id} value={`${a.id}:${a.revision}`}>
               {a.name}
             </option>
           ))}

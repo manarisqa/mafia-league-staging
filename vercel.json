@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "feat/league-core-skill-sprint": true,
+      "feat/testable-preview": false
+    }
+  }
+}

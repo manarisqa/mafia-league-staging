@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Pinned originals: byte identity is tested; do not autoformat/rewrite them.
+    "src/lib/league/legacy/**",
+    "tests/fixtures/**",
   ]),
 ]);
 

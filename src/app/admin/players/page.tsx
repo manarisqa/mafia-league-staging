@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Игроки · Админка" };
 export default async function AdminPlayersPage() {
   const { supabase } = await requireAdmin();
   const players = await adminPlayers(supabase);
-  const accounts = players.filter((p) => p.user_id).map((p) => ({ id: p.id, name: p.display_name }));
+  const accounts = players.filter((p) => p.user_id).map((p) => ({ id: p.id, name: p.display_name, revision: p.revision }));
 
   return (
     <div className="space-y-8">
@@ -33,7 +33,7 @@ export default async function AdminPlayersPage() {
                 <span>{p.user_id ? "Есть аккаунт" : "Без аккаунта"}</span>
                 <DeletePlayerButton player={p} />
               </div>
-              {!p.user_id && <LinkAccountForm historicalId={p.id} accounts={accounts} />}
+              {!p.user_id && <LinkAccountForm historicalId={p.id} historicalRevision={p.revision} accounts={accounts} />}
             </li>
           ))}
         </ul>

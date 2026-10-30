@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { RevisionField } from "@/components/form-revision";
 import { rsvp } from "@/app/evenings/actions";
 
 type Status = "going" | "late" | "maybe" | "not_going";
@@ -15,10 +16,12 @@ const OPTIONS: { value: Status; label: string }[] = [
 export function RsvpButtons({
   eveningId,
   current,
+  revision,
   name,
 }: {
   eveningId: string;
   current: Status | null;
+  revision: number;
   name: string;
 }) {
   const [state, action, pending] = useActionState(rsvp, {});
@@ -26,6 +29,7 @@ export function RsvpButtons({
   return (
     <form action={action}>
       <input type="hidden" name="evening_id" value={eveningId} />
+      <RevisionField initial={revision} state={state} />
       <p className="mb-3 text-sm text-muted">
         Вы вошли как <span className="text-text">{name}</span>. Выберите, придёте ли на вечер:
       </p>

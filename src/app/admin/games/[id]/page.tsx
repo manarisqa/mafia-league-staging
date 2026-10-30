@@ -67,15 +67,15 @@ export default async function AdminGamePage(props: PageProps<"/admin/games/[id]"
               </li>
             ))}
           </ul>
-          <ReopenGameButton gameId={game.id} />
+          <ReopenGameButton gameId={game.id} revision={game.revision} />
         </section>
       ) : (
         <>
           <section className="rounded-card border border-border bg-surface p-5">
-            <GameEditor game={game} players={options} signedIds={signedIds} />
+            <GameEditor key={game.id} game={game} players={options} signedIds={signedIds} />
           </section>
           <div className="flex justify-end">
-            <DeleteGameButton gameId={game.id} />
+            <DeleteGameButton gameId={game.id} revision={game.revision} />
           </div>
         </>
       )}

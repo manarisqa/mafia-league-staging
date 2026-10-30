@@ -1,3 +1,4 @@
+import { Text } from "@/components/locale-provider";
 import Link from "next/link";
 import { signOut } from "@/app/login/actions";
 import { createServerSupabase } from "@/lib/supabase/server";
@@ -49,17 +50,17 @@ export async function AuthButton({ variant }: { variant: "bar" | "menu" }) {
       {/* Пока профиль — это публичная страница игрока. */}
       {playerId && (
         <Link href={`/players/${playerId}`} className={s.ghost}>
-          Профиль
+          <Text id="profile" />
         </Link>
       )}
       {isAdmin && (
         <Link href="/admin" className={s.link}>
-          Админка
+          <Text id="admin" />
         </Link>
       )}
       <form action={signOut} className={variant === "menu" ? "w-full" : undefined}>
         <button type="submit" className={s.ghost}>
-          Выйти
+          <Text id="signOut" />
         </button>
       </form>
     </div>
@@ -81,10 +82,10 @@ export function AuthLinks({
   return (
     <div className={w}>
       <Link href="/register" className={st.link}>
-        Регистрация
+        <Text id="register" />
       </Link>
       <Link href="/login" className={st.primary}>
-        Войти
+        <Text id="signIn" />
       </Link>
     </div>
   );
