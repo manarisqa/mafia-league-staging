@@ -13,6 +13,7 @@ const NAV = [
   { href: "/admin", label: "Обзор" },
   { href: "/admin/evenings", label: "Вечера" },
   { href: "/admin/games", label: "Партии" },
+  { href: "/admin/referee", label: "Ведущий" },
   { href: "/admin/players", label: "Игроки" },
 ];
 
@@ -32,7 +33,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
-        <nav aria-label="Разделы админки" className="flex gap-1">
+        <nav aria-label="Разделы админки" className="flex flex-wrap gap-1">
           {NAV.map((n) => (
             <Link
               key={n.href}
