@@ -85,13 +85,13 @@ export type AdminSignup = {
 export async function adminSignups(db: SupabaseClient, eveningId: string): Promise<AdminSignup[]> {
   const { data, error } = await db
     .from("evening_signups")
-    .select("player_id, status, revision, players(display_name)")
+    .select("player_id, status, revision, players(display_name,nickname)")
     .eq("evening_id", eveningId);
   if (error) throw new Error(`Не удалось загрузить записи: ${error.message}`);
   return data
     .map((s) => {
       const p = Array.isArray(s.players) ? s.players[0] : s.players;
-      return { player_id: s.player_id, revision: Number(s.revision), status: s.status, name: p?.display_name ?? "—" } as AdminSignup;
+      return { player_id: s.player_id, revision: Number(s.revision), status: s.status, name: p?.nickname?.trim() || p?.display_name || "—" } as AdminSignup;
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }

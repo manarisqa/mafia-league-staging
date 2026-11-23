@@ -1,3 +1,7 @@
+> Справка о восстановлении League Core в PR №14. Интеграция с пультом и
+> текущий статус тестовой среды описаны в [отчёте спринта](INTEGRATED_SPRINT_REPORT.md).
+> Для заполненной Preview используйте [текущую инструкцию Supabase](../supabase/README.md).
+
 # League Core: интегрированный спринт 30.10.2026
 
 Код подготовлен в `feat/league-core-skill-sprint`. Действующие Supabase, Vercel,

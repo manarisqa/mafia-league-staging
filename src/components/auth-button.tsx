@@ -25,8 +25,8 @@ export async function AuthButton({ variant }: { variant: "bar" | "menu" }) {
   let isAdmin = false;
   let playerId: string | null = null;
   if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+    const supabase = await createServerSupabase();
     try {
-      const supabase = await createServerSupabase();
       const { data } = await supabase.auth.getClaims();
       signedIn = !!data?.claims;
       if (signedIn) {

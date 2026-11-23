@@ -1,10 +1,12 @@
+import type { Locale } from "@/lib/i18n/messages";
+import { siteText } from "@/lib/i18n/site";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export function DemoBadge() {
+export function DemoBadge({ locale = "ru" }: { locale?: Locale }) {
   return (
     <span className="inline-flex shrink-0 items-center rounded-full border border-accent/50 bg-accent/10 px-2.5 py-0.5 text-xs text-accent-text">
-      Демонстрационные данные
+      {siteText(locale, "Демонстрационные данные")}
     </span>
   );
 }
@@ -12,11 +14,13 @@ export function DemoBadge() {
 export function Card({
   title,
   demo,
+  locale,
   className = "",
   children,
 }: {
   title?: string;
   demo?: boolean;
+  locale?: Locale;
   className?: string;
   children: ReactNode;
 }) {
@@ -25,7 +29,7 @@ export function Card({
       {(title || demo) && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           {title && <h2 className="font-display text-xl font-bold">{title}</h2>}
-          {demo && <DemoBadge />}
+          {demo && <DemoBadge locale={locale} />}
         </div>
       )}
       {children}

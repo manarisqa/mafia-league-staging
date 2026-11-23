@@ -3,6 +3,8 @@ import { test, before, after, beforeEach, afterEach } from "node:test";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { database, ADMIN, USER, EVENING, PAST, CLASSIC, SHORT, HOST, rowRevision, seats } from "./support/database";
+import { append, checksum, createCurrentDraft, exportProtocol, type Draft } from "../src/lib/referee/engine";
+import { prepareRefereeResult } from "../src/lib/referee/bridge";
 import { SnapshotSchema, projectLeague } from "../src/lib/league/core";
 let db: PGlite;
 let userPlayer: string;
@@ -278,3 +280,104 @@ for(const problem of ["composition","capacity"] as const) test(`migration fails 
     assert.equal((await old.query<{name:string|null}>("select to_regclass('public.evening_notes') as name")).rows[0].name,null);
   } finally { await old.close(); }
 });
+
+test("public gaming nickname overrides the display label without changing the player ID", async () => {
+  const player = (await seats(db))[0].player;
+  await db.query("update players set nickname='  Сова  ' where id=$1", [player]);
+  await actor(null);
+  const league = await snapshot();
+  assert.equal(league.players.find((p) => p.id === player)?.display_name, "Сова");
+  assert(league.games.some((g) => g.seats.some((s) => s.player_id === player)));
+});
+
+test("cloud protocol is owner-only, append-only and safe to retry", async () => {
+  const secondAdmin = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+  await db.query("insert into auth.users values($1,'other@example.invalid','{}')", [secondAdmin]);
+  await db.query("insert into public.admins values($1)", [secondAdmin]);
+  const draft = createCurrentDraft("short9", "Private cloud test", { localNickname: "Host" });
+  const saved = append(draft, { type: "seat_assigned", seat: 1, name: "Alpha" });
+  const fork = append(draft, { type: "seat_assigned", seat: 1, name: "Beta" });
+  const { args: first, run } = await refereeSave(draft, 0);
+  await actor(null);
+  await reject("select payload from referee_protocols", [], /permission denied/);
+  await reject(run, first, /permission denied/);
+  await actor(USER);
+  await reject(run, first, /администратора/);
+  await actor(ADMIN);
+  assert.equal(Number((await db.query<{ rev: number }>(run, first)).rows[0].rev), 1);
+  await reject("update referee_protocols set revision=10", [], /permission denied/);
+  const { args: next } = await refereeSave(saved, 1);
+  assert.equal(Number((await db.query<{ rev: number }>(run, next)).rows[0].rev), 2);
+  assert.equal(Number((await db.query<{ rev: number }>(run, next)).rows[0].rev), 2);
+  await reject(run, (await refereeSave(fork, 2)).args, /version conflict/);
+  await reject(run, (await refereeSave(draft, 0)).args, /version conflict/);
+  await actor(USER);
+  assert.equal((await db.query("select payload from referee_protocols")).rows.length, 0);
+  await actor(secondAdmin);
+  assert.equal((await db.query("select payload from referee_protocols")).rows.length, 0);
+  await reject(run, first, /unavailable/);
+});
+
+test("official approval binds saved observations, rejects stale writes and produces one durable receipt", async () => {
+  const rows = await seats(db);
+  const gameRevision = await reopen();
+  const draft = completedReferee(rows);
+  const { args: saved, run } = await refereeSave(draft, 0);
+  await db.query(run, saved);
+
+  const mapping = Object.fromEntries(rows.map((seat) => [seat.seat, seat.player]));
+  const review = await prepareRefereeResult(await exportProtocol(draft), {
+    id: CLASSIC, format: "classic10", status: "in_progress", revision: gameRevision,
+  }, mapping, HOST, [HOST, ...Object.values(mapping)]);
+  assert.equal(review.rpc.p_seats[0].fouls, 1);
+  await assert.rejects(prepareRefereeResult(await exportProtocol(draft), {
+    id: CLASSIC, format: "classic10", status: "in_progress", revision: gameRevision,
+  }, { ...mapping, 1: mapping[2], 2: mapping[1] }, HOST, [HOST, ...Object.values(mapping)]), /ID игрока/);
+
+  const approve = "select approve_referee_protocol($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as rev";
+  const params = [draft.draftId, 1, saved[1], CLASSIC, gameRevision, HOST,
+    JSON.stringify(review.rpc.p_seats), review.rpc.p_winner, review.rpc.p_result_type, review.rpc.p_reason];
+  await reject(approve, params.map((value, i) => i === 2 ? "0".repeat(64) : value), /version conflict/);
+  await reject(approve, params.map((value, i) => i === 4 ? gameRevision + 1 : value), /другом окне/);
+  await reject(approve, params.map((value, i) => i === 7 ? "black" : value), /does not match protocol/);
+  await reject(approve, params.map((value, i) => i === 6 ? JSON.stringify(rows) : value), /Seating does not match/);
+  await reject(approve, params.map((value, i) => i === 6 ? JSON.stringify(review.rpc.p_seats.map((s, j) => j === 0 ? { ...s, player: HOST } : s)) : value), /Seating does not match/);
+  assert.equal(await rowRevision(db, "games", CLASSIC), gameRevision);
+
+  const official = Number((await db.query<{ rev: number }>(approve, params)).rows[0].rev);
+  assert(official > gameRevision);
+  assert.equal(Number((await db.query<{ rev: number }>(approve, params)).rows[0].rev), official);
+  assert.equal(await rowRevision(db, "games", CLASSIC), official);
+  await reject(approve, params.map((value, i) => i === 3 ? SHORT : value), /already approved/);
+
+  await actor(null);
+  const published = await snapshot();
+  assert.equal(published.games.find((game) => game.id === CLASSIC)?.seats[0].fouls, 1);
+  assert(!JSON.stringify(published).includes(draft.draftId));
+  await actor(ADMIN);
+  const reopened = Number((await db.query<{ rev: number }>("select reopen_game($1,$2) as rev", [CLASSIC, official])).rows[0].rev);
+  const competing = completedReferee(rows);
+  const { args: other } = await refereeSave(competing, 0);
+  await db.query(run, other);
+  await reject(approve, [competing.draftId, 1, other[1], CLASSIC, reopened, ...params.slice(5)], /already has/);
+  await db.query("select delete_game($1,$2)", [CLASSIC, reopened]);
+  assert.equal((await db.query<{ approved_game_id: string }>("select approved_game_id from referee_protocols where id=$1", [draft.draftId])).rows[0].approved_game_id, CLASSIC);
+});
+
+async function refereeSave(draft: Draft, revision: number) {
+  return { run: "select save_referee_protocol($1,$2,$3) as rev", args: [JSON.stringify(draft), await checksum(draft), revision] };
+}
+
+function completedReferee(rows: Awaited<ReturnType<typeof seats>>) {
+  let draft = createCurrentDraft("classic10", "Official test", { localNickname: "Host", optionalPublicPlayerId: HOST });
+  for (const row of rows) {
+    draft = append(draft, { type: "seat_assigned", seat: row.seat, name: `Player ${row.seat}`, playerId: row.player });
+    draft = append(draft, { type: "role_recorded", seat: row.seat, role: row.role as "civilian" | "don" | "sheriff" | "mafia" });
+  }
+  draft = append(draft, { type: "phase_started", next: "night" });
+  draft = append(draft, { type: "ordinary_foul", seat: 1 });
+  const foul = draft.events.at(-1)!.id;
+  draft = append(draft, { type: "observation_undone", target: foul, reason: "Проверка" });
+  draft = append(draft, { type: "observation_redone", target: foul, reason: "Проверка" });
+  return append(draft, { type: "game_finished", outcome: "normal", winner: "red", basis: "Observed by referee", confidence: "observed" });
+}

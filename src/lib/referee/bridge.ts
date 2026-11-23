@@ -23,11 +23,14 @@ export async function prepareRefereeResult(raw: string, target: RefereeTarget,
   if (!known.has(hostId)) throw new Error("Ведущий не найден в реестре игроков");
   const seats = table.seats.map((p) => {
     const player = z.string().uuid().parse(mapping[p.number]);
+    if (z.string().uuid().safeParse(p.optionalPublicPlayerId).success && p.optionalPublicPlayerId !== player) {
+      throw new Error(`Место ${p.number}: ID игрока не совпадает с протоколом`);
+    }
     if (!known.has(player)) throw new Error(`Место ${p.number}: игрок не найден`);
     return { seat: p.number, player, role: p.role!, fouls: p.fouls, removed: p.removed };
   });
   if (new Set(seats.map((p) => p.player)).size !== seats.length || seats.some((p) => p.player === hostId)) throw new Error("Нужны разные игроки и отдельный ведущий");
-  if (draft.host?.optionalPublicPlayerId && draft.host.optionalPublicPlayerId !== hostId) throw new Error("Явно разрешите несовпадение ведущего в исходном протоколе");
+  if (z.string().uuid().safeParse(draft.host?.optionalPublicPlayerId).success && draft.host!.optionalPublicPlayerId !== hostId) throw new Error("Явно разрешите несовпадение ведущего в исходном протоколе");
   return {
     rpc: { p_game: target.id, p_expected_revision: target.revision, p_host: hostId, p_seats: seats,
       p_winner: table.result.outcome === "draw" ? "draw" as const : table.result.winner!, p_finish: true,

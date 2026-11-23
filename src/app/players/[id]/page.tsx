@@ -1,3 +1,6 @@
+import { siteText } from "@/lib/i18n/site";
+import type { Locale } from "@/lib/i18n/messages";
+import { getLocale } from "@/lib/i18n/server";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -18,19 +21,21 @@ import {
 import { sideOf } from "@/lib/rating";
 import { isUuid } from "@/lib/validate";
 
-export const metadata: Metadata = { title: "Профиль игрока" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: siteText(await getLocale(), "Профиль игрока") };
+}
 
 /** Меньше этого числа партий доли побед почти ничего не говорят. */
 const FEW_GAMES = 10;
 
-export default function PlayerPage(props: PageProps<"/players/[id]">) {
+export default async function PlayerPage(props: PageProps<"/players/[id]">) {
+  const locale = await getLocale();
+  const t = (label: string) => siteText(locale, label);
   return (
     <div className="mx-auto max-w-5xl space-y-4 px-4 py-10 sm:px-6">
-      <Link href="/players" className="inline-flex min-h-11 items-center text-sm text-accent-text hover:underline">
-        ← Все игроки
-      </Link>
-      <Suspense fallback={<p className="text-muted">Загрузка профиля…</p>}>
-        <Profile params={props.params} />
+      <Link href="/players" className="inline-flex min-h-11 items-center text-sm text-accent-text hover:underline">{t("← Все игроки")}</Link>
+      <Suspense fallback={<p className="text-muted">{t("Загрузка профиля…")}</p>}>
+        <Profile locale={locale} params={props.params} />
       </Suspense>
     </div>
   );
@@ -40,7 +45,8 @@ function percent(s: SideStats) {
   return s.games > 0 ? `${Math.round((s.wins / s.games) * 100)}%` : "—";
 }
 
-async function Profile({ params }: { params: Promise<{ id: string }> }) {
+async function Profile({ locale, params }: { locale: Locale; params: Promise<{ id: string }> }) {
+  const t = (label: string) => siteText(locale, label);
   const { id } = await params;
   if (!isUuid(id)) notFound();
   const p = await getPlayerProfile(id);
@@ -54,20 +60,20 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
           <Avatar name={p.name} size={88} />
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-3xl font-bold sm:text-4xl">{p.name}</h1>
-            <p className="mt-1 text-muted">{STATUS_LABEL[p.status]}</p>
-            {p.joinedOn && <p className="mt-1 text-sm text-muted">В клубе с {sinceMonth(p.joinedOn)}</p>}
+            <p className="mt-1 text-muted">{t(STATUS_LABEL[p.status])}</p>
+            {p.joinedOn && <p className="mt-1 text-sm text-muted">{t("В клубе с")} {sinceMonth(p.joinedOn, locale)}</p>}
           </div>
-          {demo && <DemoBadge />}
+          {demo && <DemoBadge locale={locale} />}
         </div>
       </Card>
 
       {p.games === 0 ? (
         <Card>
-          <p className="text-muted">Игрок ещё не сыграл ни одной завершённой партии.</p>
+          <p className="text-muted">{t("Игрок ещё не сыграл ни одной завершённой партии.")}</p>
         </Card>
       ) : (
         <>
-          <RatingCard p={p} />
+          <RatingCard locale={locale} p={p} />
 
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
@@ -83,13 +89,10 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
             ))}
           </dl>
           {p.games < FEW_GAMES && (
-            <p className="text-sm text-muted">
-              Пока {p.games} {plural(p.games, ["партия", "партии", "партий"])}: проценты на таком числе
-              партий ещё мало что говорят об игре.
-            </p>
+            <p className="text-sm text-muted">{t("Пока")}{p.games} {plural(p.games, ["партия", "партии", "партий"].map(t) as [string, string, string])}{t(": проценты на таком числе партий ещё мало что говорят об игре.")}</p>
           )}
 
-          <Card title="По сторонам">
+          <Card title={t("По сторонам")}>
             <div className="grid gap-3 sm:grid-cols-2">
               {(["red", "black"] as const).map((side) => (
                 <div
@@ -99,13 +102,12 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
                   }`}
                 >
                   <p className="font-display text-lg font-bold">
-                    <WinnerMark winner={side} />
+                    <WinnerMark locale={locale} winner={side} />
                   </p>
                   <div className="mt-2 flex items-end justify-between gap-3">
-                    <p className="text-sm text-muted">
-                      Победы{" "}
+                    <p className="text-sm text-muted">{t("Победы")}{" "}
                       <span className="text-base text-text tabular-nums">
-                        {p.sides[side].wins} из {p.sides[side].games}
+                        {p.sides[side].wins} {t("из")} {p.sides[side].games}
                       </span>
                     </p>
                     <p className="font-display text-2xl font-bold tabular-nums">{percent(p.sides[side])}</p>
@@ -115,21 +117,21 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
             </div>
           </Card>
 
-          <Card title="По ролям">
+          <Card title={t("По ролям")}>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[24rem] text-left text-sm">
                 <thead className="text-muted">
                   <tr>
-                    <th scope="col" className="py-2 pr-4 font-normal">Роль</th>
-                    <th scope="col" className="py-2 pr-4 text-right font-normal">Партий</th>
-                    <th scope="col" className="py-2 pr-4 text-right font-normal">Побед</th>
-                    <th scope="col" className="py-2 text-right font-normal">% побед</th>
+                    <th scope="col" className="py-2 pr-4 font-normal">{t("Роль")}</th>
+                    <th scope="col" className="py-2 pr-4 text-right font-normal">{t("Партий")}</th>
+                    <th scope="col" className="py-2 pr-4 text-right font-normal">{t("Побед")}</th>
+                    <th scope="col" className="py-2 text-right font-normal">{t("% побед")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {(["civilian", "sheriff", "don", "mafia"] as const).map((role) => (
                     <tr key={role}>
-                      <td className="py-3 pr-4">{ROLE_LABEL[role]}</td>
+                      <td className="py-3 pr-4">{t(ROLE_LABEL[role])}</td>
                       <td className="py-3 pr-4 text-right tabular-nums">{p.roles[role].games}</td>
                       <td className="py-3 pr-4 text-right tabular-nums">{p.roles[role].wins}</td>
                       <td className="py-3 text-right tabular-nums">{percent(p.roles[role])}</td>
@@ -140,7 +142,7 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
             </div>
           </Card>
 
-          <Card title="История партий">
+          <Card title={t("История партий")}>
             <ul className="divide-y divide-border">
               {p.history.map((g) => (
                 <li key={g.gameId}>
@@ -149,20 +151,19 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
                     className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 hover:text-accent-text"
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block font-medium">{longDate(g.startsAt)}</span>
-                      <span className="block text-sm text-muted">
-                        Партия №{g.no} · {FORMAT_LABEL[g.format]}{g.skillReason ? ` · ${g.skillReason}` : ""}
+                      <span className="block font-medium">{longDate(g.startsAt, locale)}</span>
+                      <span className="block text-sm text-muted">{t("Партия №")}{g.no} · {t(FORMAT_LABEL[g.format])}{g.skillReason ? ` · ${t(g.skillReason)}` : ""}
                       </span>
                     </span>
                     <span className="text-sm">
-                      {ROLE_LABEL[g.role]} · <WinnerMark winner={sideOf(g.role)} />
+                      {t(ROLE_LABEL[g.role])} · <WinnerMark locale={locale} winner={sideOf(g.role)} />
                     </span>
                     <span
                       className={`w-24 text-right text-sm font-medium ${
                         g.result === "win" ? "text-success" : "text-muted"
                       }`}
                     >
-                      {RESULT_LABEL[g.result]}
+                      {t(RESULT_LABEL[g.result])}
                     </span>
                     <span aria-hidden className="text-muted">→</span>
                   </Link>
@@ -176,14 +177,14 @@ async function Profile({ params }: { params: Promise<{ id: string }> }) {
   );
 }
 
-function RatingCard({ p }: { p: PlayerProfile }) {
+function RatingCard({ locale, p }: { locale: Locale; p: PlayerProfile }) {
+  const t = (label: string) => siteText(locale, label);
   return <Card title="League Skill">
     <div className="grid items-center gap-6 sm:grid-cols-[auto_1fr]">
-      <div><SkillValue stats={p} />
-        <p className="mt-3 max-w-xs text-sm text-muted">team-logit-v1. Short9 не меняет основной Skill.
-          Предварительная оценка: меньше 20 подходящих партий или высокая неопределённость.</p>
+      <div><SkillValue locale={locale} stats={p} />
+        <p className="mt-3 max-w-xs text-sm text-muted">{t("team-logit-v1. Short9 не меняет основной Skill. Предварительная оценка: меньше 20 подходящих партий или высокая неопределённость.")}</p>
       </div>
-      <SkillChart points={p.ratingPoints} />
+      <SkillChart locale={locale} points={p.ratingPoints} />
     </div>
   </Card>;
 }

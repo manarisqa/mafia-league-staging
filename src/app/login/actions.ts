@@ -1,5 +1,6 @@
 "use server";
 
+import { updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/lib/form-state";
 import { createServerSupabase } from "@/lib/supabase/server";
@@ -51,6 +52,8 @@ export async function signUp(_prev: FormState, formData: FormData): Promise<Form
     }
     return { message: t("registrationFailed") };
   }
+
+  updateTag("club");
 
   // Если в Supabase всё ещё включено подтверждение почты, сессии не будет.
   if (!data.session) {

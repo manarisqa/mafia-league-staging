@@ -1,3 +1,5 @@
+import { getLocale } from "@/lib/i18n/server";
+import { siteText } from "@/lib/i18n/site";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -13,9 +15,13 @@ import { requireAdmin } from "@/lib/auth";
 import { FORMAT_LABEL, GAME_STATUS_LABEL, WINNER_LABEL, fullDateTime } from "@/lib/format";
 import { isUuid } from "@/lib/validate";
 
-export const metadata: Metadata = { title: "Вечер · Админка" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: siteText(await getLocale(), "Вечер · Админка") };
+}
 
 export default async function AdminEveningPage(props: PageProps<"/admin/evenings/[id]">) {
+  const locale = await getLocale();
+  const t = (label: string) => siteText(locale, label);
   const { supabase } = await requireAdmin();
   const { id } = await props.params;
   if (!isUuid(id)) notFound();
@@ -29,7 +35,7 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
   ]);
   if (!evening) notFound();
 
-  const options = players.map((p) => ({ id: p.id, name: p.display_name }));
+  const options = players.map((p) => ({ id: p.id, name: p.nickname?.trim() || p.display_name }));
   const signed = new Set(signups.map((s) => s.player_id));
   const candidates = options.filter((p) => !signed.has(p.id));
   const going = signups.filter((s) => s.status === "going" || s.status === "late").length;
@@ -37,25 +43,20 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/admin/evenings" className="inline-flex min-h-11 items-center text-sm text-accent-text hover:underline">
-          ← Все вечера
-        </Link>
-        <h1 className="font-display text-3xl font-bold">{fullDateTime(evening.starts_at)}</h1>
-        <p className="mt-2 text-muted">
-          Придут: {going} из {evening.capacity}
+        <Link href="/admin/evenings" className="inline-flex min-h-11 items-center text-sm text-accent-text hover:underline">{t("← Все вечера")}</Link>
+        <h1 className="font-display text-3xl font-bold">{fullDateTime(evening.starts_at, locale)}</h1>
+        <p className="mt-2 text-muted">{t("Придут:")}{going} {t("из")} {evening.capacity}
         </p>
       </div>
 
       <section className="rounded-card border border-border bg-surface p-5">
-        <h2 className="mb-4 font-display text-xl font-bold">О вечере</h2>
+        <h2 className="mb-4 font-display text-xl font-bold">{t("О вечере")}</h2>
         <EveningForm key={evening.id} evening={evening} players={options} seasons={seasons} />
       </section>
 
       <section className="rounded-card border border-border bg-surface p-5">
-        <h2 className="mb-1 font-display text-xl font-bold">Запись на вечер</h2>
-        <p className="mb-4 text-sm text-muted">
-          «Придут» на сайте считаются со статусами «Придёт» и «Опоздает». Остальное видите только вы.
-        </p>
+        <h2 className="mb-1 font-display text-xl font-bold">{t("Запись на вечер")}</h2>
+        <p className="mb-4 text-sm text-muted">{t("«Придут» на сайте считаются со статусами «Придёт» и «Опоздает». Остальное видите только вы.")}</p>
         <SignupAddForm eveningId={evening.id} candidates={candidates} />
         {signups.length > 0 && (
           <ul className="mt-5 space-y-2">
@@ -67,10 +68,8 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
       </section>
 
       <section className="rounded-card border border-border bg-surface p-5">
-        <h2 className="mb-1 font-display text-xl font-bold">Партии вечера</h2>
-        <p className="mb-4 text-sm text-muted">
-          Здесь вносятся результаты: кто на каком месте сидел, роли и победитель.
-        </p>
+        <h2 className="mb-1 font-display text-xl font-bold">{t("Партии вечера")}</h2>
+        <p className="mb-4 text-sm text-muted">{t("Здесь вносятся результаты: кто на каком месте сидел, роли и победитель.")}</p>
         {games.length > 0 && (
           <ul className="mb-5 space-y-2">
             {games.map((g) => (
@@ -79,12 +78,11 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
                   href={`/admin/games/${g.id}`}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-control border border-border p-3 transition-colors hover:border-accent-text"
                 >
-                  <span className="font-medium">
-                    Партия №{g.game_no} · {FORMAT_LABEL[g.format]}
+                  <span className="font-medium">{t("Партия №")}{g.game_no} · {t(FORMAT_LABEL[g.format])}
                   </span>
                   <span className="flex items-center gap-3 text-sm text-muted">
-                    {g.winner && <span>{WINNER_LABEL[g.winner]}</span>}
-                    <span className="rounded-full bg-elevated px-3 py-1">{GAME_STATUS_LABEL[g.status]}</span>
+                    {g.winner && <span>{t(WINNER_LABEL[g.winner])}</span>}
+                    <span className="rounded-full bg-elevated px-3 py-1">{t(GAME_STATUS_LABEL[g.status])}</span>
                   </span>
                 </Link>
               </li>

@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "@/components/locale-provider";
+import { siteText } from "@/lib/i18n/site";
+
 import { useActionState } from "react";
 import { linkAccount } from "@/app/admin/players/actions";
 import { keepFormSubmit } from "@/lib/keep-form";
@@ -13,6 +16,8 @@ export function LinkAccountForm({
   historicalRevision: number;
   accounts: { id: string; name: string; revision: number }[];
 }) {
+  const { locale } = useTranslation();
+  const t = (label: string) => siteText(locale, label);
   const [state, action, pending] = useActionState(linkAccount, {});
   if (accounts.length === 0) return null;
 
@@ -20,7 +25,7 @@ export function LinkAccountForm({
     <div className="mt-3 border-t border-border pt-3">
       <form
         onSubmit={(e) => {
-          if (!confirm("Привязать выбранный аккаунт к этому игроку? Профиль-дубль будет удалён.")) {
+          if (!confirm(t("Привязать выбранный аккаунт к этому игроку? Профиль-дубль будет удалён."))) {
             e.preventDefault();
             return;
           }
@@ -30,9 +35,7 @@ export function LinkAccountForm({
       >
         <input type="hidden" name="historical" value={historicalId} />
         <input type="hidden" name="revision" value={historicalRevision} />
-        <label className="text-sm text-muted" htmlFor={`acc-${historicalId}`}>
-          Привязать аккаунт:
-        </label>
+        <label className="text-sm text-muted" htmlFor={`acc-${historicalId}`}>{t("Привязать аккаунт:")}</label>
         <select
           id={`acc-${historicalId}`}
           name="account"
@@ -40,9 +43,7 @@ export function LinkAccountForm({
           defaultValue=""
           className="h-11 rounded-control border border-border bg-elevated px-3 text-sm text-text focus:border-accent-text focus:outline-none"
         >
-          <option value="" disabled>
-            Выберите зарегистрированного…
-          </option>
+          <option value="" disabled>{t("Выберите зарегистрированного…")}</option>
           {accounts.map((a) => (
             <option key={a.id} value={`${a.id}:${a.revision}`}>
               {a.name}
@@ -53,13 +54,11 @@ export function LinkAccountForm({
           type="submit"
           disabled={pending}
           className="h-11 rounded-control border border-border px-4 text-sm hover:border-accent-text disabled:opacity-60"
-        >
-          Привязать
-        </button>
+        >{t("Привязать")}</button>
       </form>
       {state.message && (
         <p role="status" className={`mt-2 text-sm ${state.ok ? "text-success" : "text-error"}`}>
-          {state.message}
+          {t(state.message)}
         </p>
       )}
     </div>
