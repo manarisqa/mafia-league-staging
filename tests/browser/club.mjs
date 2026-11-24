@@ -99,7 +99,9 @@ try {
   await capture(guest, "club-home-player-phone");
 
   await admin.goto(app + "/history");
-  const past = admin.locator("main details").filter({ hasText: "Тест · Graz" }).first();
+  // The referee regression may also publish synthetic results for the
+  // planned fixture. The oldest published seed evening has already started.
+  const past = admin.locator("main details").filter({ hasText: "Тест · Graz" }).last();
   if (await past.getAttribute("open") === null) await past.locator("summary").click();
   const pastPath = await past.getByRole("link", { name: "О вечере", exact: true }).getAttribute("href");
   assert(pastPath);
