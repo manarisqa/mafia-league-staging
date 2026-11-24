@@ -22,7 +22,8 @@ const unselected = "border-border text-muted hover:border-accent hover:text-text
 type Search = { [key: string]: string | string[] | undefined };
 
 export async function SeasonReport({ params, searchParams }: { params?: Promise<{ period: string }>; searchParams: Promise<Search> }) {
-  const [locale, route, query, league] = await Promise.all([getLocale(), params, searchParams, getLeague(), connection()]);
+  await connection();
+  const [locale, route, query, league] = await Promise.all([getLocale(), params, searchParams, getLeague()]);
   const text = seasonText(locale);
   const now = new Date().toISOString();
   const currentYear = Number(clubDate(now).slice(0, 4));

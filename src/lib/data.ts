@@ -75,8 +75,8 @@ export async function getNextEvening(locale: Locale = "ru"): Promise<NextEvening
     readiness: eveningReadiness(DEMO_EVENING.capacity, "host", DEMO_EVENING.participants),
     participants: DEMO_EVENING.participants.map((name) => ({ id: name, name })),
   };
-  const { snapshot } = await getLeague();
   await connection();
+  const { snapshot } = await getLeague();
   const now = Date.now();
   const ev = snapshot.evenings.filter((e) => e.status === "planned" && Date.parse(e.starts_at) > now)
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.id.localeCompare(b.id))[0];
@@ -84,8 +84,8 @@ export async function getNextEvening(locale: Locale = "ru"): Promise<NextEvening
 }
 
 export async function getPublicEvening(id: string, locale: Locale): Promise<NextEvening | null> {
-  const { snapshot } = await getLeague();
   await connection();
+  const { snapshot } = await getLeague();
   const ev = snapshot.evenings.find((e) => e.id === id);
   return ev ? presentEvening(ev, locale, ev.status === "planned" && Date.parse(ev.starts_at) > Date.now()) : null;
 }
