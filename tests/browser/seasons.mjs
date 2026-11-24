@@ -42,7 +42,10 @@ try {
   await page.getByRole("heading", { name: `${year} · 1 квартал` }).waitFor();
   await page.getByRole("link", { name: "Вся история", exact: true }).click();
   await page.getByRole("heading", { name: "Вся история", exact: true }).waitFor();
-  await page.getByRole("navigation", { name: "Формат" }).getByRole("link", { name: "Девятка" }).click();
+  const short9 = page.getByRole("navigation", { name: "Формат" }).getByRole("link", { name: "Девятка" });
+  await short9.click();
+  await page.waitForURL((url) => url.searchParams.get("format") === "short9");
+  await short9.and(page.locator('[aria-current="true"]')).waitFor();
   await page.getByRole("table").getByRole("columnheader", { name: "Ничьи" }).waitFor();
   assert.match(await page.getByRole("table").locator("tbody td").first().innerText(), /^\d+\/\d+$/);
 
