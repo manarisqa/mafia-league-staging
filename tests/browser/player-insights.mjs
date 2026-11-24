@@ -70,7 +70,23 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log("Player profile passed RU/UK, four tabs, history pagination, combined filters, guest privacy and empty state at 375/820/1440px.");
+  const ownerContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const owner = await ownerContext.newPage();
+  await owner.goto(app + "/login");
+  await owner.locator("#email").fill(process.env.QA_PLAYER_EMAIL || "qa-player@example.test");
+  await owner.locator("#password").fill(process.env.QA_PASSWORD || "Synthetic-QA-Only-2026");
+  await owner.getByRole("button", { name: "Войти", exact: true }).click();
+  await owner.waitForURL((url) => url.pathname !== "/login");
+  const profile = await owner.locator('header a[href^="/players/"]').filter({ visible: true }).first().getAttribute("href");
+  assert(profile && profile !== emptyProfile);
+  await owner.goto(app + profile + "?tab=history");
+  await owner.getByRole("heading", { name: "Отмеченное присутствие", exact: true }).waitFor();
+  assert.equal(await owner.getByText("Отметки о присутствии временно недоступны.", { exact: true }).count(), 0);
+  await owner.goto(app + emptyProfile + "?tab=history");
+  await owner.getByRole("heading", { name: "История партий", exact: true }).waitFor();
+  assert.equal(await owner.locator("#attendancePage").count(), 0, "A player must not see another player's attendance");
+  await ownerContext.close();
+  console.log("Player profile passed RU/UK, four tabs, history pagination, combined filters, owner-only attendance and empty state at 375/820/1440px.");
 } finally {
   await browser.close();
 }

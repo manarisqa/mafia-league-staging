@@ -104,6 +104,7 @@ export async function HistoryPanel({ locale, playerId, query, raw, games, evenin
   const played = insightPage(playedEvenings, parseInsightPage(raw.eveningsPage));
   const attendancePage = parseInsightPage(raw.attendancePage);
   const attendance = await getOwnAttendance(playerId, attendancePage, query.period.startDay ?? undefined, dayAfter(query.period.endDay));
+  const attendanceRows = attendance?.state === "available" ? attendance.rows : null;
 
   return (
     <>
@@ -155,10 +156,10 @@ export async function HistoryPanel({ locale, playerId, query, raw, games, evenin
       {attendance && <section id="attendancePage" className="scroll-mt-4">
         <Card title={t("Отмеченное присутствие")}>
           <p className="mb-2 text-sm text-muted">{t("Личные отметки организатора за выбранный период. Отметка появляется после фактического посещения.")}</p>
-          {!attendance.length
-            ? <p className="text-sm text-muted">{t("За этот период отметок о присутствии пока нет.")}</p>
+          {!attendanceRows?.length
+            ? <p className="text-sm text-muted">{t(attendanceRows ? "За этот период отметок о присутствии пока нет." : "Отметки о присутствии временно недоступны.")}</p>
             : <ul className="divide-y divide-border">
-                {attendance.slice(0, ATTENDANCE_PAGE_SIZE).map((evening) => (
+                {attendanceRows.slice(0, ATTENDANCE_PAGE_SIZE).map((evening) => (
                   <li key={evening.id}>
                     <Link href={`/evenings/${evening.id}`} className="inline-flex min-h-11 items-center gap-2 py-2 text-sm text-accent-text hover:underline">
                       {longDate(evening.startsAt, locale)} · <span className="wrap-anywhere">{evening.place}</span>
@@ -166,7 +167,7 @@ export async function HistoryPanel({ locale, playerId, query, raw, games, evenin
                   </li>
                 ))}
               </ul>}
-          <PageNav {...{ locale, playerId, query, search: raw }} field="attendancePage" current={attendancePage} next={attendance.length > ATTENDANCE_PAGE_SIZE} />
+          {attendanceRows && <PageNav {...{ locale, playerId, query, search: raw }} field="attendancePage" current={attendancePage} next={attendanceRows.length > ATTENDANCE_PAGE_SIZE} />}
         </Card>
       </section>}
     </>
