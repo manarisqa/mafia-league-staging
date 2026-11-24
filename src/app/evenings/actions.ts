@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { FormState } from "@/lib/form-state";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { expectedRevision, mutationError } from "@/lib/mutation";
+import { eveningAuthLink } from "@/lib/evening-return";
 import { isUuid } from "@/lib/validate";
 
 const STATUSES = ["going", "late", "maybe", "not_going"] as const;
@@ -19,9 +20,9 @@ const MESSAGE = {
 export async function rsvp(_prev: FormState, formData: FormData): Promise<FormState> {
   const supabase = await createServerSupabase();
   const { data } = await supabase.auth.getUser();
-  if (!data.user) redirect("/login");
-
   const eveningId = String(formData.get("evening_id") ?? "");
+  if (!data.user) redirect(eveningAuthLink("/login", isUuid(eveningId) ? `/evenings/${eveningId}` : undefined));
+
   const status = String(formData.get("status") ?? "");
   if (!isUuid(eveningId)) return { message: "Неверный вечер." };
   const cancel = status === "cancel";

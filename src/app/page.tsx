@@ -6,6 +6,9 @@ import { hasSupabaseConfig } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { RsvpPanel } from "./evenings/rsvp-panel";
 import { InviteButton } from "./invite-button";
+import { EveningReadiness } from "./evenings/evening-details";
+import { isUuid } from "@/lib/validate";
+import { FORMAT_LABEL } from "@/lib/format";
 import { DEMO_FORMATS } from "@/lib/demo";
 import {
   getLeagueStats,
@@ -49,14 +52,14 @@ export default async function Home() {
           className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_20%,rgba(170,35,53,0.35),transparent_60%),radial-gradient(ellipse_at_10%_100%,rgba(170,35,53,0.15),transparent_50%)]"
         />
         <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24">
-          <h1 className="max-w-3xl font-display text-4xl leading-tight font-bold sm:text-6xl">{t("Мафия объединяет в Граце")}</h1>
+          <h1 className="max-w-3xl font-display text-4xl leading-tight font-bold sm:text-6xl">{ownProfile ? `${t("Ваш клуб")}, ${ownProfile.name}` : t("Мафия объединяет в Граце")}</h1>
           <p className="mt-5 max-w-xl text-lg text-muted">{t("Участие бесплатное. Играем в спортивную мафию в Граце.")}</p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <ButtonLink href="/evenings">{t("Записаться на вечер")}</ButtonLink>
             <ButtonLink href="/referee" variant="outline">{t("Вести игру")}</ButtonLink>
             {profileId
               ? <ButtonLink href={`/players/${profileId}`} variant="outline">{t("Мой профиль")}</ButtonLink>
-              : <InviteButton />}
+              : <ButtonLink href="/learn" variant="outline">{t("Как начать")}</ButtonLink>}
           </div>
           {ownProfile ? <div className="mt-6 flex max-w-md flex-wrap items-center gap-5 rounded-panel border border-border bg-surface/70 p-4">
             <div><p className="text-sm text-muted">{t("Сыграно партий")}</p><b className="text-xl tabular-nums">{ownProfile.games}</b></div>
@@ -82,20 +85,16 @@ export default async function Home() {
                   <span className="font-display text-3xl leading-none font-bold">{evening.day}</span>
                   <span className="text-xs text-muted">{evening.month}</span>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="font-display text-2xl font-bold">{t("Начало в")} {evening.time}</p>
-                  <p className="mt-1 text-sm text-muted">{evening.place}</p>
+                  <p className="mt-1 break-words text-sm text-muted">{evening.place}</p>
                 </div>
               </div>
-              <ul className="mt-4 space-y-1.5 text-sm text-muted">
-                <li>
-                  <span className="font-medium text-text">
-                    {t("Подтверждено")} · {evening.signedUp + Number(!!evening.hostName && !evening.hostInSignups)}
-                  </span>{" · "}{t("Для партии нужно")} {evening.capacity + 1} {t("включая ведущего")}</li>
-                {evening.hostName && <li>{t("Ведущий:")} {evening.hostName}</li>}
-              </ul>
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <ButtonLink href="/evenings">{t("Записаться на вечер")}</ButtonLink>
+              <p className="mt-3 text-sm">{t("Плановый формат")} · {t(FORMAT_LABEL[evening.capacity === 9 ? "short9" : "classic10"])}</p>
+              <div className="mt-2"><EveningReadiness evening={evening} locale={locale} /></div>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <ButtonLink href={evening.id ? `/evenings/${evening.id}` : "/evenings"}>{t("О вечере")}</ButtonLink>
+                {evening.id && <InviteButton path={`/evenings/${evening.id}`} />}
               </div>
             </>
           ) : (
@@ -134,7 +133,9 @@ export default async function Home() {
               {recent.map((g) => (
                 <li key={g.id} className="flex items-center justify-between gap-3 py-3">
                   <span className="text-muted">{g.date}</span>
-                  <span className="font-medium">{t(g.format)}</span>
+                  {!isUuid(g.id) ? <span className="font-medium">{t(g.format)}</span> : (
+                    <Link href={`/history/games/${g.id}`} className="inline-flex min-h-11 items-center font-medium hover:text-accent-text">{t(g.format)}</Link>
+                  )}
                   <span className="text-muted">{t(g.status)}</span>
                 </li>
               ))}

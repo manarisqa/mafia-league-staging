@@ -1,5 +1,5 @@
 "use server";
-import { updateTag } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import type { FormState } from "@/lib/form-state";
@@ -52,4 +52,21 @@ export async function setSignup(prev: FormState, form: FormData): Promise<FormSt
 export async function removeSignup(prev: FormState, form: FormData): Promise<FormState> {
   form.set("status", "cancel");
   return setSignup(prev, form);
+}
+
+export async function saveAttendance(prev: FormState, form: FormData): Promise<FormState> {
+  const { supabase } = await requireAdmin();
+  const evening = form.get("evening_id");
+  const revision = expectedRevision(form);
+  const attendees = form.getAll("attendee").filter(isUuid);
+  if (!isUuid(evening) || revision === null || revision > 2147483647 || attendees.length > 500 ||
+      attendees.length !== form.getAll("attendee").length || (!attendees.length && form.get("empty") !== "on")) {
+    return { message: "Проверьте список присутствовавших." };
+  }
+  const { data, error } = await supabase.rpc("save_evening_attendance", {
+    p_evening: evening, p_expected_revision: revision, p_attendees: attendees,
+  });
+  if (error) return { ...prev, ...mutationError(error) };
+  revalidatePath(`/admin/evenings/${evening}`);
+  return { ok: true, revision: Number(data), message: "Посещаемость сохранена." };
 }

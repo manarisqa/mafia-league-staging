@@ -8,12 +8,13 @@ import { useTranslation } from "@/components/locale-provider";
 const input =
   "h-12 w-full rounded-control border border-border bg-elevated px-4 text-text placeholder:text-muted focus:border-accent-text focus:outline-none";
 
-export function LoginForm({ forbidden }: { forbidden: boolean }) {
+export function LoginForm({ forbidden, next }: { forbidden: boolean; next?: string }) {
   const [state, action, pending] = useActionState(signIn, {});
   const { t } = useTranslation();
 
   return (
-    <form onSubmit={keepFormSubmit(action)} className="space-y-4">
+    <form action={action} onSubmit={keepFormSubmit(action)} className="space-y-4">
+      {next && <input type="hidden" name="next" value={next} />}
       {forbidden && (
         <p role="alert" className="rounded-control border border-error/50 bg-error/10 p-3 text-sm text-error">
           {t("forbidden")}

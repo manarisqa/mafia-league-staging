@@ -47,7 +47,7 @@ export function EveningForm({
   const [state, action, pending] = useActionState(saveEvening, {});
 
   return (
-    <form onSubmit={keepFormSubmit(action)} className="space-y-4">
+    <form action={action} onSubmit={keepFormSubmit(action)} className="space-y-4">
       {evening && <input type="hidden" name="id" value={evening.id} />}
       <RevisionField initial={evening?.revision ?? 0} state={state} />
       <label className="block text-sm text-muted">{t("Сезон (нужен для League Skill)")}<select name="season_id" defaultValue={evening ? evening.season_id ?? "" : seasons[0]?.id ?? ""} className={`mt-1 ${field}`}>
@@ -154,7 +154,7 @@ export function SignupAddForm({
   }
   return (
     <div>
-      <form onSubmit={keepFormSubmit(action)} className="grid gap-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
+      <form action={action} onSubmit={keepFormSubmit(action)} className="grid gap-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
         <input type="hidden" name="evening_id" value={eveningId} />
         <input type="hidden" name="revision" value={0} />
         <label className="block text-sm text-muted">{t("Игрок")}<select name="player_id" required defaultValue="" className={`mt-1 ${field}`}>
@@ -192,7 +192,7 @@ export function SignupRow({ eveningId, signup }: { eveningId: string; signup: Ad
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="font-medium">{signup.name}</span>
         <div className="flex flex-wrap items-center gap-2">
-          <form onSubmit={keepFormSubmit(saveAction)} className="flex items-center gap-2">
+          <form action={saveAction} onSubmit={keepFormSubmit(saveAction)} className="flex items-center gap-2">
             <input type="hidden" name="evening_id" value={eveningId} />
             <RevisionField initial={signup.revision} state={saveState} />
             <input type="hidden" name="player_id" value={signup.player_id} />

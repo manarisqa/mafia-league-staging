@@ -1,6 +1,7 @@
 import { siteText } from "@/lib/i18n/site";
 import { getLocale } from "@/lib/i18n/server";
 import Link from "next/link";
+import { eveningAuthLink } from "@/lib/evening-return";
 import { RsvpButtons } from "@/app/evenings/rsvp-buttons";
 import { Card } from "@/components/ui";
 import { createServerSupabase } from "@/lib/supabase/server";
@@ -13,16 +14,17 @@ export async function RsvpPanel({ eveningId }: { eveningId: string }) {
   const { data } = await supabase.auth.getUser();
 
   if (!data.user) {
+    const next = `/evenings/${eveningId}`;
     return (
       <Card title={t("Записаться на вечер")} className="border-accent/40">
         <p className="text-muted">{t("Чтобы записаться, войдите или зарегистрируйтесь. Это займёт минуту.")}</p>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <Link
-            href="/register"
+            href={eveningAuthLink("/register", next)}
             className="inline-flex h-12 items-center justify-center rounded-control bg-accent px-6 font-medium hover:bg-accent-hover"
           >{t("Зарегистрироваться")}</Link>
           <Link
-            href="/login"
+            href={eveningAuthLink("/login", next)}
             className="inline-flex h-12 items-center justify-center rounded-control border border-border px-6 font-medium hover:border-accent-text"
           >{t("Войти")}</Link>
         </div>
@@ -53,6 +55,7 @@ export async function RsvpPanel({ eveningId }: { eveningId: string }) {
 
   return (
     <Card title={t("Записаться на вечер")} className="border-accent/40">
+      <p className="mb-3 text-sm text-muted">{t("«Приду» и «Опоздаю» подтверждают запись. «Возможно» отмечает интерес. Присутствие организатор отмечает отдельно.")}</p>
       <RsvpButtons locale={locale} key={`${eveningId}:${player.id}`}
         eveningId={eveningId}
         revision={Number(signup?.revision ?? 0)}

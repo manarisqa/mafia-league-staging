@@ -10,7 +10,9 @@ import {
   SignupRow,
 } from "@/app/admin/evenings/evening-forms";
 import { AddGameForm } from "@/app/admin/games/game-forms";
-import { adminEvening, adminGamesOfEvening, adminPlayers, adminSignups, adminSeasons } from "@/lib/admin-data";
+import { AttendanceForm } from "../attendance-form";
+import { eveningReadiness } from "@/lib/evening-roster";
+import { adminAttendance, adminEvening, adminGamesOfEvening, adminPlayers, adminSignups, adminSeasons } from "@/lib/admin-data";
 import { requireAdmin } from "@/lib/auth";
 import { FORMAT_LABEL, GAME_STATUS_LABEL, WINNER_LABEL, fullDateTime } from "@/lib/format";
 import { isUuid } from "@/lib/validate";
@@ -26,26 +28,29 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
   const { id } = await props.params;
   if (!isUuid(id)) notFound();
 
-  const [evening, players, signups, games, seasons] = await Promise.all([
+  const [evening, players, signups, games, seasons, attendance] = await Promise.all([
     adminEvening(supabase, id),
     adminPlayers(supabase),
     adminSignups(supabase, id),
     adminGamesOfEvening(supabase, id),
     adminSeasons(supabase),
+    adminAttendance(supabase, id),
   ]);
   if (!evening) notFound();
 
   const options = players.map((p) => ({ id: p.id, name: p.nickname?.trim() || p.display_name }));
   const signed = new Set(signups.map((s) => s.player_id));
   const candidates = options.filter((p) => !signed.has(p.id));
-  const going = signups.filter((s) => s.status === "going" || s.status === "late").length;
+  const roster = eveningReadiness(evening.capacity, evening.host_player_id,
+    signups.filter((s) => s.status === "going" || s.status === "late").map((s) => s.player_id));
+  const mayLog = evening.status !== "cancelled" && Date.parse(evening.starts_at) <= new Date().getTime();
 
   return (
     <div className="space-y-8">
       <div>
         <Link href="/admin/evenings" className="inline-flex min-h-11 items-center text-sm text-accent-text hover:underline">{t("← Все вечера")}</Link>
         <h1 className="font-display text-3xl font-bold">{fullDateTime(evening.starts_at, locale)}</h1>
-        <p className="mt-2 text-muted">{t("Придут:")}{going} {t("из")} {evening.capacity}
+        <p className="mt-2 text-muted">{t("Игроки с подтверждённой записью")} · {roster.confirmed} · {t("Для одного стола")} {evening.capacity}
         </p>
       </div>
 
@@ -65,6 +70,14 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="rounded-card border border-border bg-surface p-5">
+        <h2 className="mb-1 font-display text-xl font-bold">{t("Фактическая посещаемость")}</h2>
+        <p className="mb-4 text-sm text-muted">{t("Отметьте всех, кого видели на вечере, включая ведущего и гостей с профилем. Запись и сыгранные партии учитываются отдельно.")}</p>
+        {attendance === undefined ? <p className="text-sm text-muted">{t("Журнал посещаемости пока недоступен.")}</p>
+          : mayLog ? <AttendanceForm eveningId={id} locale={locale} log={attendance} players={options} />
+          : <p className="text-sm text-muted">{t("Посещаемость доступна после начала неотменённого вечера.")}</p>}
       </section>
 
       <section className="rounded-card border border-border bg-surface p-5">
@@ -92,9 +105,9 @@ export default async function AdminEveningPage(props: PageProps<"/admin/evenings
         <AddGameForm eveningId={evening.id} />
       </section>
 
-      <div className="flex justify-end">
+      {!attendance && <div className="flex justify-end">
         <DeleteEveningButton id={evening.id} revision={evening.revision} />
-      </div>
+      </div>}
     </div>
   );
 }

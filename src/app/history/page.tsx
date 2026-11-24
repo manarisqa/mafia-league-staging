@@ -2,6 +2,7 @@ import { siteText } from "@/lib/i18n/site";
 import type { Locale } from "@/lib/i18n/messages";
 import { getLocale } from "@/lib/i18n/server";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { ProtocolLink, SeasonCard, TotalsStrip, WinnerMark } from "@/app/history/history-ui";
 import { DemoBadge } from "@/components/ui";
 import { getHistory, showDemoBadge, type HistoryEvening } from "@/lib/data";
@@ -32,7 +33,7 @@ function EveningRow({ locale, e, open }: { locale: Locale; e: HistoryEvening; op
           <span className="min-w-0 flex-1">
             <span className="block font-display text-xl font-bold">{t("Игровой вечер №")}{e.number}</span>
             <span className="mt-1 block text-sm text-muted">
-              {e.place} · {e.participants} {plural(e.participants, ["участник", "участника", "участников"].map(t) as [string, string, string])}
+              {e.place} · {t("Играли за столом")} · {e.participants} {plural(e.participants, ["участник", "участника", "участников"].map(t) as [string, string, string])}
             </span>
           </span>
           <span className="flex items-center gap-5 text-sm text-muted">
@@ -63,6 +64,7 @@ function EveningRow({ locale, e, open }: { locale: Locale; e: HistoryEvening; op
         </summary>
 
         <div className="border-t border-border px-4 pb-2 sm:px-5">
+          <Link href={`/evenings/${e.id}`} className="inline-flex min-h-11 items-center text-sm text-accent-text hover:underline">{t("О вечере")}</Link>
           {e.games.length === 0 ? (
             <p className="py-4 text-sm text-muted">{t("Завершённых партий в этот вечер нет.")}</p>
           ) : (

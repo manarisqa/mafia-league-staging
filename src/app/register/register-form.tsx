@@ -9,12 +9,13 @@ import { isValidNickname } from "@/lib/nickname";
 const input =
   "h-12 w-full rounded-control border border-border bg-elevated px-4 text-text placeholder:text-muted focus:border-accent-text focus:outline-none";
 
-export function RegisterForm() {
+export function RegisterForm({ next }: { next?: string }) {
   const [state, action, pending] = useActionState(signUp, {});
   const { t } = useTranslation();
 
   return (
-    <form onSubmit={keepFormSubmit(action)} className="space-y-4">
+    <form action={action} onSubmit={keepFormSubmit(action)} className="space-y-4">
+      {next && <input type="hidden" name="next" value={next} />}
       <div>
         <label htmlFor="nickname" className="mb-1.5 block text-sm text-muted">
           {t("nickname")}

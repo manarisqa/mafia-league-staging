@@ -53,13 +53,13 @@ export type AdminEvening = {
 export async function adminEvenings(db: SupabaseClient) {
   const { data, error } = await db
     .from("evenings")
-    .select("id, starts_at, place, capacity, status, host_player_id, revision, season_id, evening_signups(status)")
+    .select("id, starts_at, place, capacity, status, host_player_id, revision, season_id, evening_signups(status,player_id)")
     .order("starts_at", { ascending: false });
   if (error) throw new Error(`Не удалось загрузить вечера: ${error.message}`);
   return data.map((e) => ({
     ...(e as unknown as AdminEvening),
     note: null,
-    signups: (e.evening_signups as { status: string }[] | null)?.filter((s) => s.status === "going" || s.status === "late").length ?? 0,
+    signups: (e.evening_signups as { status: string; player_id: string }[] | null)?.filter((s) => (s.status === "going" || s.status === "late") && s.player_id !== e.host_player_id).length ?? 0,
   }));
 }
 
@@ -164,4 +164,16 @@ export async function adminRelevantEvening(db: SupabaseClient) {
   const { data } = await db.from("evenings").select("id,place,starts_at").eq("status", "planned")
     .gte("starts_at", earliest).order("starts_at").limit(1).maybeSingle();
   return data;
+}
+
+export async function adminAttendance(db: SupabaseClient, eveningId: string) {
+  const { data, error } = await db.from("evening_attendance_logs")
+    .select("revision,recorded_at,evening_attendees(player_id)")
+    .eq("evening_id", eveningId).maybeSingle();
+  if (error?.code === "PGRST205" || error?.code === "42P01") return undefined;
+  if (error) throw new Error(`Не удалось загрузить посещаемость: ${error.message}`);
+  return data ? {
+    revision: Number(data.revision), recordedAt: data.recorded_at,
+    attendees: data.evening_attendees.map(({ player_id }) => player_id as string),
+  } : null;
 }
