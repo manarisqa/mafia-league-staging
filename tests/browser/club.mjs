@@ -26,7 +26,6 @@ function allowCompile(page) {
 
 async function login(page, account) {
   await page.goto(app + "/login");
-  assert.equal(await page.locator("form:has(#password)").evaluate((form) => form.method), "post");
   await page.locator("#email").fill(account);
   await page.locator("#password").fill(password);
   await button(page, "Войти").click();
@@ -68,7 +67,16 @@ try {
 
   await guest.locator('main a[href^="/register?next="]').click();
   await guest.waitForURL("**/register?next=*");
-  assert.equal(await guest.locator("form:has(#password)").evaluate((form) => form.method), "post");
+  const withoutScripts = await browser.newPage({ javaScriptEnabled: false });
+  try {
+    for (const url of [app + "/login", guest.url()]) {
+      await withoutScripts.goto(url);
+      const credentials = withoutScripts.locator("form:has(#password)");
+      assert.equal(await credentials.evaluate((form) => form.method), "post");
+    }
+  } finally {
+    await withoutScripts.close();
+  }
   await guest.locator("#nickname").fill(nickname);
   await guest.locator("#email").fill(email);
   await guest.locator("#password").fill(password);
