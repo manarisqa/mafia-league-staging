@@ -72,7 +72,9 @@ try {
     for (const url of [app + "/login", guest.url()]) {
       await withoutScripts.goto(url);
       const credentials = withoutScripts.locator("form:has(#password)");
-      assert.equal(await credentials.evaluate((form) => form.method), "post");
+      await credentials.first().waitFor({ state: "attached" });
+      const methods = await credentials.evaluateAll((forms) => forms.map((form) => form.method));
+      assert(methods.length > 0 && methods.every((method) => method === "post"));
     }
   } finally {
     await withoutScripts.close();
