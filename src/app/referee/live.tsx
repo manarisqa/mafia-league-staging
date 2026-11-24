@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { type Action, type Draft, type Event } from "@/lib/referee/guided/protocol";
-import { alive, checkAnswer, focusSeat, nextSpeaker, remainingVotes, replay, roleLimit, roleOrder, timing, type State } from "@/lib/referee/guided/reducer";
+import { alive, checkAnswer, checkingSeat, focusSeat, nextSpeaker, remainingVotes, replay, roleLimit, roleOrder, timing, type State } from "@/lib/referee/guided/reducer";
 import { Board } from "./board";
 import { clockText, useClock } from "./clock";
 import { checkLabel, type Translate, type Word } from "./words";
@@ -21,12 +21,14 @@ function DisciplineNotice({ latest, state, draft, t, act, disabled }: {
   const action = latest.action;
   const { seat, kind } = action;
   const player = state.seats[seat - 1];
+  const card = player.fouls === 4 ? "redCard" : "yellowCard";
   const call = kind === "ordinary" ? ordinaryAnnouncement[player.fouls - 1]
     : kind === "technical" ? player.warnings === 1 ? "technicalFirst" : "technicalSecond" : "removed";
   const cancelledDay = state.day + Number(state.skipNext);
   return <div className="ref-call ref-announcement" data-discipline-notice>
     <p role="status">
-      <strong>{t("announce")} · №{seat} {draft.players[seat - 1].name}. {t(call)}{kind === "remove" && "."}</strong>{" "}
+      <strong>{t("announce")} · №{seat} {draft.players[seat - 1].name}. {t(call)}{kind === "remove" && "."}
+        {kind === "ordinary" && <span className="ref-card-status" data-card={card}> {t(card)}.</span>}</strong>{" "}
       {t("foulBasis")}{" "}
       {player.removed ? <>
         {t("noLastWord")} {t(state.terminal ? "terminalRemoval" : state.skipNext ? "skipNext" : "voteCancelled")}
@@ -86,59 +88,75 @@ function Discipline({ draft, state, t, act, close }: {
   const [kind, setKind] = useState<"technical" | "remove" | null>(null);
   const [reason, setReason] = useState("");
   const player = seat ? state.seats[seat - 1] : null;
+  const legacyWarnings = state.rulesRevision === 1;
   return <Sheet close={close} title={t("discipline")}>
     {!player ? <>
       <p>{t("foulPlayer")}</p>
       <Board format={draft.format} players={draft.players} t={t} enabled={alive(state).map((p) => p.number)}
-        discipline={seatDiscipline(state)} onSeat={select} />
+        discipline={seatDiscipline(state)} legacyWarnings={legacyWarnings} onSeat={select} />
     </> : <>
       <h4>№{player.number} · {draft.players[player.number - 1].name}</h4>
-      <p>{t("ordinaryCount")} {player.fouls}/4 · {t("technicalCount")} {player.warnings}/2</p>
+      <p>{t("ordinaryCount")} {player.fouls}/4{legacyWarnings && " · " + t("technicalCount") + " " + player.warnings + "/2"}</p>
       {player.debt && <p className="ref-call">{t("debtRule")}</p>}
       {player.fouls === 3 && <p className="ref-status">{t("foulFourth")} {t("noLastWord")}</p>}
-      <div className="ref-actions">
-        <button type="button" className="primary" onClick={async () => {
+      {!kind ? <div className="ref-actions">
+        <button type="button" className="primary" data-card={player.fouls === 3 ? "redCard" : "yellowCard"} onClick={async () => {
           if (await act({ type: "discipline", seat: player.number, kind: "ordinary" })) close();
         }}>{t("ordinary")}</button>
-        <button type="button" onClick={() => setKind("technical")}>{t("technical")}</button>
+        {legacyWarnings && <button type="button" onClick={() => setKind("technical")}>{t("technical")}</button>}
         <button type="button" onClick={() => setKind("remove")}>{t("remove")}</button>
-      </div>
-      {kind && <>
+      </div> : <>
         {(kind === "remove" || player.warnings === 1) && <p className="ref-status">{t("noLastWord")}</p>}
         <label>{t("reason")}<input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></label>
-        <button type="button" className="primary" disabled={reason.trim().length < 3} onClick={async () => {
-          if (await act({ type: "discipline", seat: player.number, kind, reason })) close();
-        }}>{t(kind)}</button>
+        <div className="ref-actions">
+          <button type="button" className="primary" disabled={reason.trim().length < 3} onClick={async () => {
+            if (await act({ type: "discipline", seat: player.number, kind, reason })) close();
+          }}>{t(kind)}</button>
+          <button type="button" onClick={() => { setKind(null); setReason(""); }}>{t("back")}</button>
+        </div>
       </>}
     </>}
   </Sheet>;
 }
 
-function NightCheck({ draft, state, t, act, close, observed }: {
-  draft: Draft; state: State; t: Translate; act: Act; close: () => void; observed: () => number | null;
+function NightCheck({ draft, state, t, act, close, clock, disabled }: {
+  draft: Draft; state: State; t: Translate; act: Act; close: () => void;
+  clock: ReturnType<typeof useClock>; disabled: boolean;
 }) {
   const [target, setTarget] = useState<number | null>(null);
-  const role = state.step === "donCheck" ? "don" : "sheriff";
-  const actor = state.seats.find((p) => p.role === role);
+  const actor = checkingSeat(state);
   const answer = target ? checkAnswer(state, target) : null;
+  const waitForClock = state.rulesRevision !== 1 && actor?.alive;
+  const canConfirm = !disabled && (!waitForClock || (clock.seconds === 0 && clock.clock?.status !== "uncertain"));
   async function confirm(mode: "observed" | "unknown" | "absent" | "noTarget") {
+    if (!canConfirm) return;
     if (await act({
-      type: "check", mode, seconds: observed(),
+      type: "check", mode, seconds: clock.observed,
       ...(target && (mode === "observed" || mode === "unknown") ? { target } : {}),
       ...(mode === "observed" && answer ? { answer } : {}),
     })) close();
   }
-  return <Sheet close={close} title={t(role === "don" ? "donCheck" : "sheriffCheck")}>
+  return <Sheet close={close} title={t(state.step === "donCheck" ? "donCheck" : "sheriffCheck")}>
     {actor?.alive ? <>
+      <div className="ref-check-clock">
+        <span>{t(clock.seconds > 0 ? "timer" : "elapsed")}</span>
+        <output aria-label={t("timer")} aria-live="off" data-check-timer>{clockText(clock.seconds)}</output>
+        {clock.clock && (clock.seconds > 0 || clock.clock.status === "uncertain") &&
+          <button type="button" onClick={clock.clock.status === "running" ? clock.pause : clock.resume}>
+            {t(clock.clock.status === "running" ? "pauseTimer" : "resume")}
+          </button>}
+        {clock.clock?.status === "uncertain" && <small role="status">{t("uncertain")}</small>}
+      </div>
       <Board format={draft.format} players={draft.players} t={t} selected={target ? [target] : []}
+        discipline={seatDiscipline(state)} legacyWarnings={state.rulesRevision === 1}
         enabled={state.seats.filter((p) => checkAnswer(state, p.number)).map((p) => p.number)} onSeat={setTarget}
         target={target ? { seat: target, label: "currentTarget" } : undefined} />
       {answer && <p className="ref-answer" role="status"><span>{t(checkLabel(answer))}</span> <small>№{target}</small></p>}
     </> : <p>{t("absent")}</p>}
     <div className="ref-actions">
-      {answer && <button type="button" className="primary" onClick={() => confirm("observed")}>{t("confirmCheck")}</button>}
-      <button type="button" onClick={() => confirm(actor?.alive ? "noTarget" : "absent")}>{t(actor?.alive ? "noTarget" : "absent")}</button>
-      <button type="button" onClick={() => confirm("unknown")}>{t("unknown")}</button>
+      {answer && <button type="button" className="primary" disabled={!canConfirm} onClick={() => confirm("observed")}>{t("confirmCheck")}</button>}
+      <button type="button" disabled={!canConfirm} onClick={() => confirm(actor?.alive ? "noTarget" : "absent")}>{t(actor?.alive ? "noTarget" : "absent")}</button>
+      <button type="button" disabled={!canConfirm} onClick={() => confirm("unknown")}>{t("unknown")}</button>
     </div>
   </Sheet>;
 }
@@ -287,7 +305,7 @@ function Procedure({ draft, state, t, act, clock, disabled, lock, tools }: {
     {hints[step] && <p className="ref-hint">{t(hints[step])}</p>}
     <div className="ref-arena">
       <Board players={draft.players} format={draft.format} selected={selected.length ? selected : focus ? [focus] : []}
-        discipline={state.phase !== "setup" ? seatDiscipline(state) : undefined}
+        discipline={state.phase !== "setup" ? seatDiscipline(state) : undefined} legacyWarnings={state.rulesRevision === 1}
         speaker={["speech", "defense", "last"].includes(step) ? focus : null} candidates={candidates} target={target}
         onSeat={seatClick} enabled={enabled} t={t} />
       {candidates.length > 0 && <Nominations state={state} draft={draft} t={t} />}
@@ -329,7 +347,7 @@ function Procedure({ draft, state, t, act, clock, disabled, lock, tools }: {
       {step === "morning" && state.nightExit && <p>{t("morningAfterKill")} {labels([state.nightExit])}</p>}
       {state.vote.cancelled && !state.vote.announced && step !== "dayAnnounce" && <p className="ref-status">{t("voteCancelled")}</p>}
       {state.skipNext && <p className="ref-status">{t("skipNext")}</p>}
-      {timed && !clock.clock && button("start", () => clock.start(), true)}
+      {timed && !isCheck && !clock.clock && button("start", () => clock.start(), true)}
       {advanceButtons[step] && button(advanceButtons[step]!, advance, !timed || !!clock.clock)}
       {step === "shot" && <div className="ref-actions">
         {button("shotConfirm", () => void act({ type: "shot", target: selected[0] }), true, selected.length === 1)}
@@ -342,7 +360,7 @@ function Procedure({ draft, state, t, act, clock, disabled, lock, tools }: {
       {isCheck && button("privateCheck", () => {
         if (!clock.clock) clock.start();
         setSheet("check");
-      }, !!clock.clock)}
+      }, true)}
       {step === "best" && <div className="ref-actions">
         {button("bestConfirm", () => void act({ type: "best", targets: selected, seconds: clock.observed }), true, selected.length === 3)}
         {button("unknown", () => void act({ type: "best", targets: null, seconds: clock.observed }))}
@@ -359,7 +377,7 @@ function Procedure({ draft, state, t, act, clock, disabled, lock, tools }: {
       {canDiscipline && button("technicalResult", () => setSheet("exception"))}
     </div>
     {sheet === "foul" && canDiscipline && <Discipline draft={draft} state={state} t={t} act={act} close={() => setSheet(null)} />}
-    {sheet === "check" && isCheck && <NightCheck draft={draft} state={state} t={t} act={act} observed={() => clock.observed} close={() => setSheet(null)} />}
+    {sheet === "check" && isCheck && <NightCheck draft={draft} state={state} t={t} act={act} clock={clock} disabled={disabled} close={() => setSheet(null)} />}
     {sheet === "exception" && canDiscipline && <Exception t={t} act={act} close={() => setSheet(null)} />}
   </>;
 }

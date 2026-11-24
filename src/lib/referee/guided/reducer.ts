@@ -15,6 +15,7 @@ type Vote = {
 };
 type Check = Extract<Action, { type: "check" }> & { role: "don" | "sheriff"; night: number };
 export type State = {
+  rulesRevision: 1 | NonNullable<Draft["rulesRevision"]>;
   format: Format; step: Step; phase: "setup" | "night" | "day"; day: number; night: number;
   seats: Seat[]; first: number; speaker: number | null; spoken: number[]; speechSeconds: number;
   nominations: { actor: number; target: number }[]; vote: Vote; last: number[];
@@ -38,7 +39,7 @@ function need(ok: unknown): asserts ok {
 
 function begin(draft: Draft): State {
   return {
-    format: draft.format, step: "roles", phase: "setup",
+    rulesRevision: draft.rulesRevision ?? 1, format: draft.format, step: "roles", phase: "setup",
     day: 0, night: 0, seats: draft.players.map((_, index) => ({
       number: index + 1, role: null, alive: true, fouls: 0, warnings: 0, removed: false, debt: false,
     })),
@@ -119,13 +120,17 @@ function remove(s: State, p: Seat) {
   }
 }
 
-export function checkAnswer(s: State, target: number) {
-  if (s.step !== "donCheck" && s.step !== "sheriffCheck") return null;
+export function checkingSeat(s: State) {
+  if (s.step !== "donCheck" && s.step !== "sheriffCheck") return;
   const role = s.step === "donCheck" ? "don" : "sheriff";
-  const actor = s.seats.find((p) => p.role === role);
+  return s.seats.find((p) => p.role === role);
+}
+
+export function checkAnswer(s: State, target: number) {
+  const actor = checkingSeat(s);
   const player = s.seats[target - 1];
-  if (!actor?.alive || !player?.alive || actor.number === target || !player.role) return null;
-  return role === "don" ? (player.role === "sheriff" ? "sheriff" : "not_sheriff") : black(player.role) ? "black" : "red";
+  if (!actor?.alive || !player?.role || actor.number === target || (s.rulesRevision === 1 && !player.alive)) return null;
+  return actor.role === "don" ? (player.role === "sheriff" ? "sheriff" : "not_sheriff") : black(player.role) ? "black" : "red";
 }
 
 export function timing(s: State): number | null {
@@ -294,7 +299,10 @@ function apply(s: State, action: Exclude<Action, { type: "undo" | "redo" }>) {
         if (p.fouls === 4) remove(s, p);
       } else {
         need(action.reason);
-        if (action.kind === "technical") p.warnings++;
+        if (action.kind === "technical") {
+          need(s.rulesRevision === 1);
+          p.warnings++;
+        }
         if (action.kind === "remove" || p.warnings === 2) remove(s, p);
       }
       break;
@@ -335,7 +343,10 @@ function apply(s: State, action: Exclude<Action, { type: "undo" | "redo" }>) {
     case "check": {
       need(current === "donCheck" || current === "sheriffCheck");
       const role = current === "donCheck" ? "don" : "sheriff";
-      const actor = s.seats.find((p) => p.role === role);
+      const actor = checkingSeat(s);
+      if (s.rulesRevision !== 1 && actor?.alive && action.seconds !== null) {
+        need(durations !== null && action.seconds >= durations);
+      }
       if (action.mode === "observed") {
         need(action.target && action.answer && checkAnswer(s, action.target) === action.answer);
       } else {

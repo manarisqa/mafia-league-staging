@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const PROCEDURE = "mafia-league-guided-2026-11-24-v1";
+export const CURRENT_RULES_REVISION = 2;
 export const FAIR_SEAT = "fair-seat-v1";
 export const FAIR_QUEUE = "fair-queue-v1";
 export const roles = ["civilian", "sheriff", "mafia", "don"] as const;
@@ -51,6 +52,8 @@ export const eventSchema = z.object({ id: uuid, at: date, action: actionSchema }
 export type Event = z.infer<typeof eventSchema>;
 export const draftSchema = z.object({
   version: z.literal(PROCEDURE),
+  // The envelope stays compatible with the guest RPC. Omission identifies the original rules.
+  rulesRevision: z.literal(CURRENT_RULES_REVISION).optional(),
   id: uuid,
   evening: uuid,
   round: z.number().int().positive().max(32767),

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FAIR_QUEUE, FAIR_SEAT, PROCEDURE, inEveningWindow, seatCount, type Action, type Draft, type Format } from "../src/lib/referee/guided/protocol";
+import { CURRENT_RULES_REVISION, FAIR_QUEUE, FAIR_SEAT, PROCEDURE, inEveningWindow, seatCount, type Action, type Draft, type Format } from "../src/lib/referee/guided/protocol";
 import { append, checkAnswer, focusSeat, projection, replay, timing, validate } from "../src/lib/referee/guided/reducer";
 import { fairSeats, queue, type Round } from "../src/lib/referee/guided/fair";
 
@@ -33,8 +33,9 @@ function fixture(format: Format = "classic10") {
   } satisfies Draft;
 }
 
-function flow(format: Format = "classic10") {
+function flow(format: Format = "classic10", rulesRevision?: Draft["rulesRevision"]) {
   let d: Draft = fixture(format);
+  if (rulesRevision) d = { ...d, rulesRevision };
   const now = () => replay(d).state;
   const run = (...actions: Action[]) => { for (const a of actions) d = append(d, a); return now(); };
   const roles = () => {
@@ -205,6 +206,68 @@ test("N1 pending target may check, best move accepts distinct exited targets exc
   assert.equal(f.now().step, "best");
   assert.throws(() => f.run({ type: "best", targets: [7, 1, 2], seconds: null }));
   assert.equal(f.run({ type: "best", targets: [1, 2, 3], seconds: 12 }).step, "morning");
+});
+
+test("current rules allow both living roles to check the original roster after exits and require the full timed window", () => {
+  for (const format of ["classic10", "short9"] as const) {
+    const f = flow(format, CURRENT_RULES_REVISION);
+    f.firstDay();
+    const sheriff = seatCount(format) - 3;
+    const don = seatCount(format);
+    f.run({ type: "discipline", seat: 2, kind: "remove", reason: "QA direct removal" });
+    f.speeches();
+    f.run(advance, advance);
+    if (format === "classic10") f.run({ type: "shot", target: sheriff });
+    assert.equal(checkAnswer(f.now(), don), null);
+    assert.equal(checkAnswer(f.now(), 2), "not_sheriff");
+    assert.throws(() => f.run({ type: "check", mode: "noTarget", seconds: 19.9 }));
+    const check: Action = { type: "check", mode: "observed", target: 2, answer: "not_sheriff", seconds: 20 };
+    assert.throws(() => f.run({ ...check, seconds: 19 }));
+    f.run(check);
+    assert.equal(checkAnswer(f.now(), sheriff), null);
+    assert.equal(checkAnswer(f.now(), 2), "red");
+    assert.throws(() => f.run({ type: "check", mode: "unknown", seconds: 5 }));
+    f.run({ type: "check", mode: "observed", target: 2, answer: "red", seconds: 20.4 });
+    assert.equal(validate(JSON.parse(JSON.stringify(f.draft()))).state.step, "resolveNight");
+
+    // A role removed before the check has no targets and no timed observation.
+    const absent = flow(format, CURRENT_RULES_REVISION);
+    absent.firstDay();
+    absent.run({ type: "discipline", seat: don, kind: "remove", reason: "QA removed Don" });
+    absent.speeches();
+    absent.run(advance, advance);
+    if (format === "classic10") absent.run({ type: "shotNone", mode: "miss" });
+    assert.equal(checkAnswer(absent.now(), 2), null);
+    assert.throws(() => absent.run(check));
+    assert.equal(absent.run({ type: "check", mode: "absent", seconds: null }).step, "sheriffCheck");
+  }
+});
+
+test("discipline revisions preserve old technical warnings and reject them for newly created games", () => {
+  const warning: Action = { type: "discipline", seat: 2, kind: "technical", reason: "QA original rule" };
+  const original = flow();
+  original.firstDay();
+  original.run(warning, warning);
+  const restored = validate(JSON.parse(JSON.stringify(original.draft())));
+  assert.equal(restored.draft.rulesRevision, undefined);
+  assert.equal(restored.state.seats[1].warnings, 2);
+  assert.equal(restored.state.seats[1].removed, true);
+  original.speeches();
+  original.run(advance, advance, { type: "shotNone", mode: "miss" });
+  assert.equal(checkAnswer(original.now(), 2), null);
+  original.run({ type: "check", mode: "noTarget", seconds: 4 });
+
+  const current = flow("classic10", CURRENT_RULES_REVISION);
+  current.firstDay();
+  assert.throws(() => current.run(warning));
+  for (let i = 1; i <= 4; i++) {
+    const state = current.run({ type: "discipline", seat: 2, kind: "ordinary" });
+    assert.equal(state.seats[1].fouls, i);
+    assert.equal(state.seats[1].removed, i === 4);
+    if (i === 3) assert.equal(state.seats[1].debt, true);
+  }
+  assert.throws(() => current.run({ type: "discipline", seat: 3, kind: "remove" }));
+  assert.equal(current.run({ type: "discipline", seat: 3, kind: "remove", reason: "QA direct removal" }).seats[2].removed, true);
 });
 
 test("validation rejects invalid bindings and forged or duplicate actions including undone history", () => {

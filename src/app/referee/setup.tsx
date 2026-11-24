@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FAIR_QUEUE, FAIR_SEAT, PROCEDURE, formats, seatCount, type Availability, type Catalog, type Draft, type Format, type Player } from "@/lib/referee/guided/protocol";
+import { CURRENT_RULES_REVISION, FAIR_QUEUE, FAIR_SEAT, PROCEDURE, formats, seatCount, type Availability, type Catalog, type Draft, type Format, type Player } from "@/lib/referee/guided/protocol";
 import { fairSeats, historyAt, queue, type AvailabilityRow } from "@/lib/referee/guided/fair";
 import { fullDateTime } from "@/lib/format";
 import type { Locale } from "@/lib/i18n/messages";
@@ -113,7 +113,7 @@ export function Setup({ catalog, locale, t, last, localRounds, onStart }: {
     if (!evening || !seatDraft || saving || take.length === 2 || seatDraft.confirmed.some((id) => !byId.has(id))) return;
     setSaving(true);
     const started = await onStart({
-      id: crypto.randomUUID(), version: PROCEDURE, evening: evening.id, round, format,
+      id: crypto.randomUUID(), version: PROCEDURE, rulesRevision: CURRENT_RULES_REVISION, evening: evening.id, round, format,
       startedAt: new Date().toISOString(), host: { id: host, name: hostName },
       players: seatDraft.confirmed.map((id) => ({ id, name: byId.get(id)!.name })),
       organization: {

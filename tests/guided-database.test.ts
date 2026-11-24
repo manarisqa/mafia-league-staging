@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { database, ADMIN, EVENING, HOST, USER } from "./support/database";
-import { FAIR_QUEUE, FAIR_SEAT, PROCEDURE, type Draft } from "../src/lib/referee/guided/protocol";
+import { CURRENT_RULES_REVISION, FAIR_QUEUE, FAIR_SEAT, PROCEDURE, type Draft } from "../src/lib/referee/guided/protocol";
 import { append, projection, validate } from "../src/lib/referee/guided/reducer";
 
 test("guest capability, append-only revisions, immutable originals and atomic publication", async () => {
@@ -15,7 +15,7 @@ test("guest capability, append-only revisions, immutable originals and atomic pu
   )).rows;
   const ids = players.map((p) => p.id);
   const initial: Draft = {
-    id, version: PROCEDURE, evening: EVENING, round: 100, format: "short9", startedAt: at,
+    id, version: PROCEDURE, rulesRevision: CURRENT_RULES_REVISION, evening: EVENING, round: 100, format: "short9", startedAt: at,
     host: { id: null, name: "QA private guest host" }, players,
     organization: { attendance: ids.map((player) => ({ id: player, status: "ready" })), queue: FAIR_QUEUE,
       proposed: ids, override: null, seats: FAIR_SEAT, cut: at, eligibleGames: [], original: ids, swaps: [] },

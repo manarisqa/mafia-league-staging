@@ -22,6 +22,13 @@ const waitStep = async (page, value) => page.locator('[data-step="' + value + '"
 const seat = (root, number) => root.getByRole("button", { name: new RegExp("^" + number + " · ") });
 const dialog = (page) => page.getByRole("dialog");
 const next = (page) => click(page, "Далее");
+const simulatedClocks = new WeakSet();
+
+async function installClock(page) {
+  if (simulatedClocks.has(page)) return;
+  await page.clock.install();
+  simulatedClocks.add(page);
+}
 
 async function fit(page, label, root = page) {
   const button = btn(root, label);
@@ -94,17 +101,28 @@ async function start(page, short = false, capture = true, stopAtShortCheck = fal
 }
 
 async function check(page, target = null) {
+  await installClock(page);
   await fit(page, "Открыть действие");
   await click(page, "Открыть действие");
   if (target !== null) {
     await seat(dialog(page), target).click();
-    await btn(dialog(page), "Подтвердить показанный ответ").click();
+    await finishCheck(page, "Подтвердить показанный ответ");
   } else {
     const absent = btn(dialog(page), "Роль выбыла");
     if (await absent.isVisible()) await absent.click();
-    else await btn(dialog(page), "Цель не названа").click();
+    else await finishCheck(page, "Цель не названа");
   }
   await dialog(page).waitFor({ state: "hidden" });
+}
+
+async function finishCheck(page, label) {
+  const confirmation = btn(dialog(page), label);
+  await confirmation.waitFor();
+  if (await confirmation.isDisabled() && await dialog(page).locator("[data-check-timer]").count()) {
+    await page.clock.fastForward(20_200);
+    await sameText(dialog(page).locator("[data-check-timer]"), "00:00");
+  }
+  await confirmation.click();
 }
 
 async function speeches(page, nominate = [], callback) {
@@ -160,14 +178,20 @@ async function saveResult(page, networkLoss = false) {
   const response = await request;
   assert.equal(response.ok(), true, JSON.stringify(await response.json()));
   const sent = response.request().postDataJSON();
+  assert.equal(sent.payload.rulesRevision, 2);
   await page.getByText("На проверке", { exact: true }).waitFor();
   const retry = await page.request.post(app + "/api/referee/draft", { data: sent });
   assert.equal(retry.status(), 200);
   assert.deepEqual(await retry.json(), await response.json());
+  const catalog = await page.request.get(app + "/api/referee/catalog");
+  assert.equal(catalog.status(), 200);
+  const evening = (await catalog.json()).evenings.find(({ id }) => id === sent.payload.evening);
+  assert.equal(evening?.round, sent.payload.round, "Guest submission must not allocate a public game");
   const wrong = await page.request.post(app + "/api/referee/draft", {
     data: { action: "read", id: sent.id, secret: "0".repeat(64), revision: 0 },
   });
   assert.equal(wrong.status(), 403);
+  assert.equal(wrong.headers()["cache-control"], "private, no-store");
   const malformed = await page.request.post(app + "/api/referee/draft", { data: { ...sent, payload: { ...sent.payload, events: [] } } });
   assert.equal(malformed.status(), 422);
   return sent;
@@ -186,7 +210,7 @@ if (process.env.QA_ACCEPTANCE_ONLY === "1" || process.env.QA_CAPTURE_BASELINE ==
 }
 
 if (process.env.QA_EDGE_ONLY === "1") {
-  try { await edgeScenarios(); await clubRegression(); }
+  try { await edgeScenarios(); await clubRegression(); await prepareEvening(); }
   finally { await browser.close(); }
   process.exit(0);
 }
@@ -280,7 +304,12 @@ try {
   await seat(page, 8).click();
   await click(page, "Подтвердить цель");
   assert(!await page.getByText("Проверка Дона", { exact: true }).count());
-  await check(page, 7);
+  await click(page, "Открыть действие");
+  await seat(dialog(page), 7).click();
+  const liveCheck = btn(dialog(page), "Подтвердить показанный ответ");
+  assert(await liveCheck.isDisabled());
+  await liveCheck.click({ timeout: 25_000 }); // Real 20-second window, with no simulated clock yet.
+  await waitStep(page, "sheriffCheck");
   await check(page, 8);
   await click(page, "Подвести итог ночи");
   await waitStep(page, "best");
@@ -294,8 +323,8 @@ try {
   await click(page, "Начать ночь");
   await seat(page, 10).click();
   await click(page, "Подтвердить цель");
-  await check(page, 7);
-  await check(page, 10);
+  await check(page, 8); // Already shot in N1.
+  await check(page, 9); // Already voted out in D2.
   await click(page, "Подвести итог ночи");
   await click(page, "Объявить утро");
   await click(page, "Завершить этап");
@@ -444,7 +473,7 @@ async function edgeScenarios() {
   const page = await host.newPage();
   await page.goto(app + "/referee");
   await start(page, false, false);
-  await page.clock.install({ time: new Date() });
+  await installClock(page);
   await click(page, "Начать речь");
   await waitStep(page, "speech");
   await page.waitForFunction(() => document.querySelector("[data-timer]")?.textContent === "01:00");
@@ -536,6 +565,39 @@ async function clubRegression() {
   console.log("PASS: registration with Cyrillic, RSVP going/maybe/cancel, signed-in home, profile, Skill and sign-out.");
 }
 
+async function prepareEvening() {
+  const adminContext = await browser.newContext();
+  const guestContext = await browser.newContext({ viewport: { width: 820, height: 1180 } });
+  try {
+    const admin = await login(adminContext, adminEmail);
+    await admin.goto(app + "/admin/evenings");
+    const date = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+    const place = "QA · Подготовка вечера " + Date.now();
+    const note = "QA private preparation note";
+    await admin.locator("input[name=starts_at]").fill(date + "T19:00");
+    await admin.locator("input[name=place]").fill(place);
+    await admin.locator("select[name=host_player_id]").selectOption({ label: "Ведущий" });
+    await admin.locator("textarea[name=note]").fill(note);
+    await click(admin, "Создать вечер");
+    await admin.waitForURL("**/admin/evenings/*");
+    const id = new URL(admin.url()).pathname.split("/").at(-1);
+
+    const guest = await guestContext.newPage();
+    await guest.goto(app + "/referee");
+    await guest.getByRole("combobox", { name: "Вечер", exact: true }).selectOption(id);
+    await guest.locator(".ref-setup").getByText(place, { exact: false }).waitFor();
+    assert.equal(await guest.getByRole("combobox", { name: "Ведущий", exact: true })
+      .evaluate((select) => select.selectedOptions[0]?.textContent), "Ведущий");
+    const catalog = await guest.request.get(app + "/api/referee/catalog");
+    assert.equal(catalog.status(), 200);
+    assert(!(await catalog.text()).includes(note));
+    console.log("PASS: admin prepared a new evening, guest selected it with its host, organizer note stayed private.");
+  } finally {
+    await guestContext.close();
+    await adminContext.close();
+  }
+}
+
 async function seedSyntheticDraw(context) {
   await context.addInitScript(() => {
     // Freeze the synthetic draw for matched screenshots. IDs and recovery tokens still use normal crypto.
@@ -557,7 +619,7 @@ async function acceptance(baseline) {
   const page = await context.newPage();
   await page.goto(app + "/referee");
   await start(page, false, false);
-  await page.clock.install();
+  await installClock(page);
   await click(page, "Начать речь");
   await waitStep(page, "speech");
   await page.waitForFunction(() => document.querySelector("[data-timer]")?.textContent === "01:00");
@@ -567,7 +629,7 @@ async function acceptance(baseline) {
     if (!baseline) {
       const announcement = ["Первый фол.", "Второй фол.", "Третий фол."][n - 1];
       await sameText(page.locator("[data-discipline-notice] strong"), new RegExp("№3.*" + announcement));
-      await disciplineCount(page, 3, n, 0);
+      await disciplineCount(page, 3, n);
     }
   }
   const time = page.locator("[data-timer]");
@@ -614,17 +676,17 @@ async function acceptance(baseline) {
     assert.equal(await clockPanel.getAttribute("data-timer-state"), "expired");
     assert.notEqual(await clockPanel.evaluate((el) => getComputedStyle(el).backgroundColor), normal);
     await waitStep(page, "speech");
-    await disciplineCount(page, 1, 0, 0);
+    await disciplineCount(page, 1, 0);
     await btn(page.locator("[data-discipline-notice]"), "Отменить действие").click();
-    await disciplineCount(page, 3, 2, 0);
+    await disciplineCount(page, 3, 2);
     await undoRedo(page, "Повторить действие");
-    await disciplineCount(page, 3, 3, 0);
+    await disciplineCount(page, 3, 3);
     await page.reload();
     await waitStep(page, "speech");
     await sameText(time, "00:00");
     await page.getByText("Проверьте остаток после восстановления", { exact: true }).waitFor();
     await order(page, "[data-nominations]", [4]);
-    await disciplineCount(page, 3, 3, 0);
+    await disciplineCount(page, 3, 3);
   }
   await click(page, "Закончить речь");
   await click(page, "Начать речь");
@@ -673,9 +735,9 @@ async function acceptance(baseline) {
   if (!baseline) {
     await page.locator("[data-vote-stage='2']").waitFor();
     await order(page, "[data-vote-order]", [2, 9]);
-    await sanction(page, 6, "technical");
-    await sameText(page.locator("[data-discipline-notice] strong"), /Первое техническое предупреждение/);
-    await disciplineCount(page, 6, 0, 1);
+    await sanction(page, 6);
+    await sameText(page.locator("[data-discipline-notice] strong"), /Первый фол.*Жёлтая карточка/);
+    await disciplineCount(page, 6, 1);
     await order(page, "[data-vote-order]", [2, 9]);
   }
   await ballot(page, [5, 5]);
@@ -696,6 +758,8 @@ async function acceptance(baseline) {
     assert(parseFloat(focusRing.outlineWidth) >= 2);
     await seat(dialog(page), 7).click();
     await sameText(dialog(page).locator(".ref-answer span"), "Шериф");
+    assert(await btn(dialog(page), "Подтвердить показанный ответ").isDisabled());
+    await waitStep(page, "donCheck");
     for (const n of [1, 8, 9]) {
       await seat(dialog(page), n).click();
       await sameText(dialog(page).locator(".ref-answer span"), "Не шериф");
@@ -721,7 +785,7 @@ async function acceptance(baseline) {
   await seat(dialog(page), 9).click(); // Pending shot remains a legal target until dawn.
   if (!baseline) await sameText(dialog(page).locator(".ref-answer span"), "Чёрный");
   await shot(page, prefix + "-sheriff-ipad");
-  await btn(dialog(page), "Подтвердить показанный ответ").click();
+  await finishCheck(page, "Подтвердить показанный ответ");
   if (!baseline) {
     await click(page, "Ещё");
     await btn(dialog(page), "Исправить карты двух мест").click();
@@ -743,7 +807,7 @@ async function acceptance(baseline) {
     await click(page, "Фол");
     assert(await seat(dialog(page), 9).isDisabled(), "An eliminated speaker cannot be sanctioned");
     await btn(dialog(page), "×").click();
-    await sanction(page, 6, "technical");
+    await sanction(page, 6, "remove");
     await page.getByText("Следующее голосование отменено", { exact: true }).waitFor();
     await waitStep(page, "last");
     await sameText(page.locator(".ref-arena [data-seat='9'] .ref-seat-exit"), "Выбыл");
@@ -758,10 +822,14 @@ async function sanction(page, n, kind = "ordinary") {
   await click(page, "Фол");
   const sheet = dialog(page);
   await seat(sheet, n).click();
+  if (process.env.QA_CAPTURE_BASELINE !== "1" && process.env.QA_GEOMETRY !== "before") {
+    assert.equal(await btn(sheet, "Техническое предупреждение").count(), 0);
+  }
   if (kind === "ordinary") await btn(sheet, "Обычный фол").click();
   else {
-    const label = kind === "technical" ? "Техническое предупреждение" : "Удалить";
+    const label = "Удалить";
     await btn(sheet, label).click();
+    assert(await btn(sheet, label).last().isDisabled());
     await sheet.getByLabel("Причина").fill("Синтетическое нарушение, проверка интерфейса");
     await btn(sheet, label).last().click();
   }
@@ -786,12 +854,17 @@ async function order(page, list, numbers) {
   assert.deepEqual(await items.evaluateAll((nodes) => nodes.map((node) => Number(node.dataset.candidate))), numbers);
 }
 
-async function disciplineCount(page, n, fouls, technical) {
+async function disciplineCount(page, n, fouls) {
   const place = page.locator(".ref-arena [data-seat='" + n + "']");
-  await place.locator("[data-fouls='" + fouls + "']").waitFor();
-  await place.locator("[data-technical='" + technical + "']").waitFor();
-  assert((await place.getAttribute("aria-label")).includes(fouls + "/4"));
-  assert((await place.getAttribute("aria-label")).includes(technical + "/2"));
+  const count = place.locator("[data-fouls='" + fouls + "']");
+  await count.waitFor();
+  const label = await place.getAttribute("aria-label");
+  assert(label.includes(fouls + "/4"));
+  if (process.env.QA_GEOMETRY === "before") return;
+  assert.equal(await place.locator("[data-technical]").count(), 0);
+  const card = fouls === 4 ? "redCard" : fouls > 0 ? "yellowCard" : null;
+  assert.equal(await count.getAttribute("data-card"), card);
+  if (card) assert(label.includes(fouls === 4 ? "Красная карточка" : "Жёлтая карточка"));
 }
 
 async function checkContrast(text, background) {
@@ -867,9 +940,9 @@ async function shortAcceptance() {
   await context.addCookies([{ name: "mafia-locale", value: "uk", url: app }]);
   await page.reload();
   await waitStep(page, "donCheck");
-  await page.clock.install();
+  await installClock(page);
   await click(page, "Відкрити дію");
-  await sameText(page.locator("[data-timer]"), "00:20");
+  await sameText(dialog(page).locator("[data-check-timer]"), "00:20");
   await page.clock.fastForward(14_000);
   await sameText(page.locator("[data-timer]"), "00:06");
   assert.equal(await page.locator(".ref-time").getAttribute("data-timer-state"), "normal");
@@ -879,25 +952,40 @@ async function shortAcceptance() {
   await sameText(dialog(page).locator(".ref-answer span"), "Шериф");
   await seat(dialog(page), 1).click();
   await sameText(dialog(page).locator(".ref-answer span"), "Не шериф");
-  await btn(dialog(page), "Не встановлено").click();
+  assert(await btn(dialog(page), "Не встановлено").isDisabled());
+  assert(await btn(dialog(page), "Підтвердити показану відповідь").isDisabled());
+  await page.clock.fastForward(4000);
+  await sameText(dialog(page).locator("[data-check-timer]"), "00:01");
+  assert(await btn(dialog(page), "Підтвердити показану відповідь").isDisabled());
+  await page.clock.fastForward(1000);
+  await sameText(dialog(page).locator("[data-check-timer]"), "00:00");
+  await waitStep(page, "donCheck");
+  await finishCheck(page, "Не встановлено");
   await click(page, "Відкрити дію");
   await seat(dialog(page), 1).click();
   await sameText(dialog(page).locator(".ref-answer span"), "Червоний");
+  await page.clock.fastForward(4000);
+  await page.reload();
+  await waitStep(page, "sheriffCheck");
+  assert.equal(await page.locator(".ref-answer").count(), 0);
+  await click(page, "Відкрити дію");
+  await dialog(page).getByRole("status").getByText(/після відновлення/i).waitFor();
+  assert.equal(await dialog(page).locator(".ref-answer").count(), 0);
+  assert((await dialog(page).locator("[data-check-timer]").textContent()) < "00:20");
+  await btn(dialog(page), "Продовжити").click();
   await seat(dialog(page), 9).click();
   await sameText(dialog(page).locator(".ref-answer span"), "Чорний");
   await checkSeats(page, 9, dialog(page));
   await shot(page, "after-short9-uk-n0-phone");
-  await btn(dialog(page), "Підтвердити показану відповідь").click();
+  await finishCheck(page, "Підтвердити показану відповідь");
   await click(page, "Завершити етап");
   await click(page, "Оголосити ранок");
   await context.addCookies([{ name: "mafia-locale", value: "ru", url: app }]);
   await page.reload();
   await waitStep(page, "speechReady");
   for (let i = 0; i < 3; i++) await sanction(page, 2);
-  await sanction(page, 8, "technical");
-  await disciplineCount(page, 8, 0, 1);
-  await sanction(page, 8, "technical");
-  await disciplineCount(page, 8, 0, 2);
+  await sanction(page, 8, "remove");
+  await disciplineCount(page, 8, 0);
   await sameText(page.locator(".ref-arena [data-seat='8'] .ref-seat-exit"), "Удалён");
   await page.getByText("Голосование отменено", { exact: true }).waitFor();
   await page.getByText(/Удаление без последнего слова/).waitFor();
@@ -999,7 +1087,8 @@ async function roundTable(mode) {
         await checkSeats(page, count, root);
         assert(ratio >= 1 && ratio <= 1.2, `Table ratio ${ratio} at ${format}/${scene}/${viewport.width}`);
         if (viewport.width === primary.width || viewport.width === compact.width) {
-          assert(geometry.seat[0] >= 125 && geometry.seat[1] >= 56);
+          assert(geometry.seat[0] >= 125 && geometry.seat[1] >= 46 && geometry.seat[1] <= 56,
+            `Seat ${geometry.seat.join("×")} at ${format}/${scene}/${viewport.width}`);
           assert(geometry.number >= 20 && geometry.name >= 14);
           for (const action of actions) {
             await fit(page, action, root);
@@ -1040,7 +1129,7 @@ async function roundTable(mode) {
         await fit(page, "Подтвердить показанный ответ", dialog(page));
         await page.setViewportSize(primary);
       }
-      await btn(dialog(page), "Подтвердить показанный ответ").click();
+      await finishCheck(page, "Подтвердить показанный ответ");
       await click(page, "Завершить этап");
       await click(page, "Объявить утро");
     }
@@ -1049,7 +1138,7 @@ async function roundTable(mode) {
     await click(page, "Пауза");
     await seat(page, 4).click();
     await sanction(page, 3);
-    await disciplineCount(page, 3, 1, 0);
+    await disciplineCount(page, 3, 1);
     await order(page, "[data-nominations]", [4]);
     await inspect("speech", page.locator(".ref-live"), ["Продолжить", "Закончить речь", "Фол"]);
     await shot(page, mode + "-" + format + "-speech-ipad");
@@ -1089,13 +1178,12 @@ async function roundTable(mode) {
       await inspect("full-ballot", page.locator(".ref-live"), ["0", "Фол"]);
       await sanction(page, 3);
       await sanction(page, 3);
-      await disciplineCount(page, 3, 3, 0);
+      await disciplineCount(page, 3, 3);
       await arena.locator("[data-seat='3'] .ref-seat-debt").waitFor();
       await page.setViewportSize(adapt[0]);
       await inspect("ballot-debt", arena);
-      await sanction(page, 3, "technical");
-      await sanction(page, 3, "technical");
-      await disciplineCount(page, 3, 3, 2);
+      await sanction(page, 3);
+      await disciplineCount(page, 3, 4);
       await sameText(arena.locator("[data-seat='3'] .ref-seat-exit"), "Удалён");
       await order(page, "[data-nominations]", [4, ...candidates]);
       await inspect("cancelled-ballot", arena);
