@@ -9,6 +9,11 @@
    добавляет закрытое хранилище и атомарное утверждение протокола.
 2. [20261123121000_public_gaming_names.sql](migrations/20261123121000_public_gaming_names.sql)
    обновляет вывод никнейма в общем публичном снимке, сохраняя идентификаторы.
+3. [20261124120000_guided_guest_referee.sql](migrations/20261124120000_guided_guest_referee.sql)
+   добавляет гостевые черновики, каталог и отдельную административную проверку.
+4. [20261124170000_guided_referee_restart.sql](migrations/20261124170000_guided_referee_restart.sql)
+   добавляет закрытые квитанции перезапуска и защищает номер партии от
+   параллельных отправок.
 
 Перед применением проверьте ref проекта, текущую схему и количество записей.
 Предыдущие миграции могли быть выполнены вручную, поэтому запись о них в
@@ -19,16 +24,22 @@ select
   to_regclass('public.referee_protocols') as referee_protocols,
   to_regprocedure('public.league_snapshot()') as snapshot_rpc,
   to_regprocedure('public.save_game(uuid,uuid,jsonb,public.game_winner,boolean,bigint,text,text)') as save_game_rpc,
+  to_regprocedure('public.guided_guest(text,uuid,text,integer,jsonb)') as guided_guest_rpc,
+  exists (select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'guided_referee_drafts' and column_name = 'restarted_as') as guided_restart,
   (select count(*) from public.players) as players,
   (select count(*) from public.evenings) as evenings,
   (select count(*) from public.games) as games;
 ```
 
-Применяйте только отсутствующие изменения из этого списка в заданном
-порядке. Существующую базу сохраняйте вместе с её данными и историей.
+После отдельного разрешения владельца применяйте только отсутствующие
+изменения из этого списка в заданном порядке. Существующую базу
+сохраняйте вместе с её данными и историей.
 Повторный запуск init, прежних миграций, seed и скрипта сброса для неё
 исключён. Для Preview укажите публичные параметры именно этого проекта.
 Миграции выполняются отдельно от деплоя Vercel и не откатываются через Git.
+Процедура резервного копирования и проверки восстановления описана в
+[Engineering B](../docs/ENGINEERING_B_RELEASE_READINESS.md).
 
 ## Новая локальная база для QA
 
