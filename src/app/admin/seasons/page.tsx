@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
+import { connection } from "next/server";
 import { Card } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { getLeague } from "@/lib/data";
@@ -24,7 +25,7 @@ export default function AdminSeasonsPage({ searchParams }: PageProps<"/admin/sea
 
 async function NominationPreview({ searchParams }: Pick<PageProps<"/admin/seasons">, "searchParams">) {
   await requireAdmin();
-  const [locale, query, league] = await Promise.all([getLocale(), searchParams, getLeague()]);
+  const [locale, query, league] = await Promise.all([getLocale(), searchParams, getLeague(), connection()]);
   const text = seasonText(locale);
   const now = new Date().toISOString();
   const current = clubYearPeriod(Number(clubDate(now).slice(0, 4)));
