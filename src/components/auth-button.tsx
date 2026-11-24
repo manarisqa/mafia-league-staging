@@ -1,3 +1,5 @@
+import { siteText } from "@/lib/i18n/site";
+import { getLocale } from "@/lib/i18n/server";
 import { Text } from "@/components/locale-provider";
 import Link from "next/link";
 import { signOut } from "@/app/login/actions";
@@ -45,6 +47,7 @@ export async function AuthButton({ variant }: { variant: "bar" | "menu" }) {
   if (!signedIn) {
     return <AuthLinks variant={variant} wrap={wrap} s={s} />;
   }
+  const locale = await getLocale();
   return (
     <div className={wrap}>
       {/* Пока профиль — это публичная страница игрока. */}
@@ -53,6 +56,9 @@ export async function AuthButton({ variant }: { variant: "bar" | "menu" }) {
           <Text id="profile" />
         </Link>
       )}
+      <Link href="/club/preferences" className={s.link}>
+        {siteText(locale, "Связь с клубом")}
+      </Link>
       {isAdmin && (
         <Link href="/admin" className={s.link}>
           <Text id="admin" />

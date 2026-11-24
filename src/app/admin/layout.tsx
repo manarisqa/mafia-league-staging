@@ -18,6 +18,9 @@ const NAV = [
   { href: "/admin/referee/inbox", label: "Проверка протоколов" },
   { href: "/admin/referee", label: "Архив пульта" },
   { href: "/admin/players", label: "Игроки" },
+  { href: "/admin/analytics", label: "Аналитика клуба" },
+  { href: "/admin/seasons", label: "Номинации" },
+  { href: "/admin/communications", label: "Уведомления и отзывы" },
 ];
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
@@ -44,7 +47,7 @@ async function AdminShell({ locale, children }: { locale: Locale; children: Reac
             <Link
               key={n.href}
               href={n.href}
-              className="inline-flex min-h-11 items-center rounded-control px-4 text-sm text-muted hover:bg-surface hover:text-text"
+              className="inline-flex min-h-11 items-center rounded-control px-2 text-sm text-muted hover:bg-surface sm:px-4 hover:text-text"
             >
               {t(n.label)}
             </Link>

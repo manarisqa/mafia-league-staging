@@ -8,3 +8,8 @@ import "./identity.test";
 
 import "./guided-referee.test";
 import "./guided-database.test";
+import "./club-evenings.test";
+import "./seasons.test";
+import "./player-insights.test";
+import "./communications.test";
+import "./admin-analytics.test";
