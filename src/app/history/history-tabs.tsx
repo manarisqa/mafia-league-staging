@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
+  { href: "/evenings", label: "Вечера и запись" },
   { href: "/history", label: "Вечера" },
   { href: "/history/games", label: "Партии" },
   { href: "/history/seasons", label: "Сезоны" },
@@ -25,7 +26,7 @@ export function TabList({ locale, pathname }: { locale: Locale; pathname: string
   const t = (label: string) => siteText(locale, label);
   return (
     <nav aria-label={t("Разделы истории")} className="mt-8">
-      <ul className="inline-flex rounded-control border border-border bg-surface p-1">
+      <ul className="inline-flex max-w-full flex-wrap rounded-control border border-border bg-surface p-1">
         {TABS.map(({ href, label }) => {
           const active = pathname !== null && isTabActive(pathname, href);
           return (

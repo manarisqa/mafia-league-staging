@@ -4,6 +4,15 @@ import { NextResponse, type NextRequest } from "next/server";
 // Обновляет сессию входа и быстро отправляет гостей с /admin на /login.
 // Это лишь первая проверка: настоящая защита — requireAdmin() в самих страницах и действиях.
 export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname === "/referee" && request.headers.get("x-mafia-referee-shell") === "1") {
+    for (const { name } of request.cookies.getAll()) {
+      if (/^sb-.*-auth-token(?:\.\d+)?$/.test(name)) request.cookies.delete(name);
+    }
+    const shell = NextResponse.next({ request });
+    shell.headers.set("X-Mafia-Referee-Shell", "1");
+    return shell;
+  }
+  if (request.nextUrl.pathname.startsWith("/api/referee/")) return NextResponse.next({ request });
   let response = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

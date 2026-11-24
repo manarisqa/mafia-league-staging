@@ -31,13 +31,13 @@ export async function getRating(): Promise<RatedPlayer[]> {
 }
 export type NextEvening = {
   id: string | null; weekday: string; day: string; month: string; time: string; place: string;
-  capacity: number; signedUp: number; hostName: string | null; participants: { id: string; name: string }[];
+  capacity: number; signedUp: number; hostInSignups: boolean; hostName: string | null; participants: { id: string; name: string }[];
 };
 export async function getNextEvening(locale: Locale = "ru"): Promise<NextEvening | null> {
   "use cache";
   cacheLife("minutes"); cacheTag("club");
   const db = getPublicClient();
-  if (!db) return { ...DEMO_EVENING, id: null, hostName: "Игрок 11", participants: DEMO_EVENING.participants.map((name) => ({ id: name, name })) };
+  if (!db) return { ...DEMO_EVENING, id: null, hostInSignups: false, hostName: "Игрок 11", participants: DEMO_EVENING.participants.map((name) => ({ id: name, name })) };
   const { snapshot } = await getLeague();
   const ev = snapshot.evenings.filter((e) => e.status === "planned" && Date.parse(e.starts_at) > Date.now())
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
@@ -47,7 +47,7 @@ export async function getNextEvening(locale: Locale = "ru"): Promise<NextEvening
   const ids = new Set((data ?? []).map((p) => p.player_id));
   const participants = snapshot.players.filter((p) => ids.has(p.id)).map((p) => ({ id: p.id, name: p.display_name }));
   return { id: ev.id, ...eveningParts(ev.starts_at, locale), place: ev.place, capacity: ev.capacity,
-    signedUp: participants.length, participants,
+    signedUp: participants.length, participants, hostInSignups: !!ev.host_player_id && ids.has(ev.host_player_id),
     hostName: snapshot.players.find((p) => p.id === ev.host_player_id)?.display_name ?? null };
 }
 export type RecentGame = { id: string; date: string; format: string; status: string };

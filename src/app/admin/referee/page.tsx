@@ -31,8 +31,14 @@ export default async function RefereePage() {
     const key = keyOf(player.name);
     nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
   }
+  const duplicateOrder = new Map<string, number>();
   for (const player of players) {
-    if ((nameCounts.get(keyOf(player.name)) ?? 0) > 1) player.name = `${player.name.slice(0, 53)} · ${player.id.slice(-8)}`;
+    const key = keyOf(player.name);
+    if ((nameCounts.get(key) ?? 0) > 1) {
+      const index = (duplicateOrder.get(key) ?? 0) + 1;
+      duplicateOrder.set(key, index);
+      player.name = `${player.name.slice(0, 57)} · №${index}`;
+    }
   }
   return <RefereeWorkbench key={user.id} owner={user.id} locale={locale} players={players} cloudItems={(cloud.data ?? []) as CloudProtocol[]} cloudAvailable={!cloud.error} games={games} />;
 }

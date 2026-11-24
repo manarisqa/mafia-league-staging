@@ -1,0 +1,377 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { LanguageSwitch, useTranslation } from "@/components/locale-provider";
+import { fullDateTime } from "@/lib/format";
+import { emptyCatalog, type Action, type Catalog, type Draft } from "@/lib/referee/guided/protocol";
+import { append, bestHits, replay, validate } from "@/lib/referee/guided/reducer";
+import { derive, type Draft as OldDraft } from "@/lib/referee/engine";
+import { canonical } from "@/lib/league/legacy/referee-protocol";
+import { Live, PrivateRoster, RoleCorrection, Sheet, UndoRedo } from "./live";
+import { Setup } from "./setup";
+import { activeKey, catalogKey, cloud, download, get, importFile, list, newLocal, read, restoreWithCode, save, write, type LocalDraft } from "./local";
+import { translate, type Translate, type Word } from "./words";
+
+type Panel = "more" | "restore" | "code" | "correction" | "roles" | "journal" | "note";
+const errors: Record<string, Word> = {
+  invalid: "invalid", invalid_procedure: "invalid", denied: "denied", conflict: "conflict", unavailable: "unavailable",
+  rate: "rate", round: "roundConflict", localConflict: "localConflict", QuotaExceededError: "storage", SecurityError: "storage",
+};
+
+export function GuidedReferee() {
+  const { locale: siteLocale } = useTranslation();
+  const [offlineLocale, setOfflineLocale] = useState<"ru" | "uk" | null>(null);
+  const locale = offlineLocale ?? siteLocale;
+  const t = translate(locale);
+  const [ready, setReady] = useState(false);
+  const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
+  const [online, setOnline] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
+  const [current, setCurrent] = useState<LocalDraft | null>(null);
+  const [next, setNext] = useState<Draft | null>(null);
+  const [sessions, setSessions] = useState<LocalDraft[]>([]);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const [legacy, setLegacy] = useState<OldDraft | null>(null);
+  const [warning, setWarning] = useState<Word | null>(null);
+  const [notice, setNotice] = useState<Word | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const [note, setNote] = useState("");
+  const [restore, setRestore] = useState("");
+  const state = current ? replay(current.draft).state : null;
+  const evening = catalog.evenings.find((e) => e.id === current?.draft.evening);
+  const protectedStatus = current && !["draft", "clarify"].includes(current.status);
+  const draftStatus = current?.outbox ? "outbox" : current?.status !== "draft" ? current?.status :
+    current.synced === current.draft.events.length ? "cloud" : "local";
+
+  const pullCatalog = useCallback(async () => {
+    try {
+      const response = await fetch("/api/referee/catalog", { cache: "no-store", credentials: "same-origin" });
+      if (!response.ok) throw new Error();
+      const content = await response.json() as Catalog;
+      setCatalog(content);
+      setCatalogError(false);
+      try { save(catalogKey, content); } catch { /* Optional cache. */ }
+    } catch { setCatalogError(true); }
+  }, []);
+
+  useEffect(() => {
+    const updateOnline = () => {
+      setOnline(navigator.onLine);
+      if (navigator.onLine) {
+        setOfflineLocale(null);
+        try { save("mafia.guided.locale", siteLocale); } catch { /* Optional cache. */ }
+        void pullCatalog();
+      } else setOfflineLocale(read<"ru" | "uk">("mafia.guided.locale"));
+    };
+    const hydrate = requestAnimationFrame(() => {
+      const cached = read<Catalog>(catalogKey);
+      if (cached) setCatalog(cached);
+      const id = read<string>(activeKey);
+      if (id) setCurrent(get(id));
+      setSessions(list());
+      setReady(true);
+      updateOnline();
+    });
+    const onStorage = () => setSessions(list());
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    window.addEventListener("storage", onStorage);
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/referee/sw.js", { scope: "/referee" })
+        .then(() => navigator.serviceWorker.ready)
+        .then((worker) => worker.active?.postMessage({
+          type: "prime", assets: performance.getEntriesByType("resource").map((e) => e.name),
+        })).catch(() => undefined);
+    }
+    return () => {
+      cancelAnimationFrame(hydrate);
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [pullCatalog, siteLocale]);
+
+  useEffect(() => {
+    const hide = () => {
+      setPanel((p) => p && ["correction", "roles", "journal", "code", "restore"].includes(p) ? null : p);
+      setRestore("");
+    };
+    const hideOnBackground = () => { if (document.hidden) hide(); };
+    window.addEventListener("blur", hide);
+    document.addEventListener("visibilitychange", hideOnBackground);
+    return () => { window.removeEventListener("blur", hide); document.removeEventListener("visibilitychange", hideOnBackground); };
+  }, []);
+
+  const fail = (error: unknown, fallback: Word = "invalid") => setWarning(
+    error instanceof Error ? errors[error.message] ?? errors[error.name] ?? fallback : fallback,
+  );
+
+  async function run<T>(fn: () => Promise<T>) {
+    if (pending.current) return null;
+    pending.current = true;
+    setBusy(true);
+    setWarning(null);
+    setNotice(null);
+    try { return await fn(); }
+    finally { pending.current = false; setBusy(false); }
+  }
+
+  async function accept(record: LocalDraft, serial: number | null, activate = false) {
+    const result = await write(record, serial, activate);
+    setCurrent(result);
+    setSessions(list());
+    return result;
+  }
+
+  async function act(action: Action) {
+    if (!current || protectedStatus || current.outbox) return null;
+    return run(async () => {
+      try {
+        const draft = append(current.draft, action);
+        await accept({ ...current, draft }, current.serial);
+        return draft;
+      } catch (error) { fail(error); return null; }
+    });
+  }
+
+  async function init(draft: Draft) {
+    const result = await run(async () => {
+      try {
+        const verified = validate(draft).draft;
+        await accept(newLocal(verified), null, true);
+        setNext(null);
+        setLegacy(null);
+        window.scrollTo(0, 0);
+        return true;
+      } catch (error) { fail(error); return false; }
+    });
+    return result === true;
+  }
+
+  function selectDraft(record: LocalDraft) {
+    try { save(activeKey, record.draft.id); } catch { setWarning("storage"); }
+    setCurrent(record);
+    setPanel(null);
+    setLegacy(null);
+    setWarning(null);
+    setNext(null);
+  }
+
+  async function sync(action: "save" | "submit" | "read" | "revoke", replace = false) {
+    if (!current) return;
+    await run(async () => {
+      let working = current;
+      try {
+        if (action === "submit" && !current.outbox) working = await accept({ ...current, outbox: true }, current.serial);
+        const result = await cloud(action, working);
+        if (result.error) {
+          if (action === "submit" && !["unavailable", "rate"].includes(result.error)) {
+            await accept({ ...working, outbox: false }, working.serial);
+          }
+          throw new Error(result.error);
+        }
+        let draft = working.draft;
+        if (action === "read" && result.payload) {
+          const remote = validate(result.payload).draft;
+          if (!replace && canonical(remote) !== canonical(working.draft) &&
+            (working.synced !== working.draft.events.length || result.status === "draft")) {
+            throw new Error("conflict");
+          }
+          draft = remote;
+        }
+        await accept({ ...working, draft, revision: result.revision, status: result.status,
+          note: result.note ?? null, synced: draft.events.length, outbox: false }, working.serial);
+        setPanel(null);
+      } catch (error) { fail(error, "unavailable"); }
+    });
+  }
+
+  async function recover() {
+    await run(async () => {
+      try {
+        const value = await restoreWithCode(restore);
+        const earlier = get(value.draft.id);
+        if (earlier && earlier.synced !== earlier.draft.events.length) throw new Error("conflict");
+        await accept(value, earlier?.serial ?? null, true);
+        setRestore("");
+        setPanel(null);
+      } catch (error) { fail(error, "unavailable"); }
+    });
+  }
+
+  async function upload(file: File) {
+    await run(async () => {
+      try {
+        const data = await importFile(file);
+        if (data.legacy) { setLegacy(data.legacy); setPanel(null); return; }
+        const draft = data.draft!;
+        const earlier = get(draft.id);
+        if (earlier) {
+          if (canonical(earlier.draft) !== canonical(draft)) throw new Error("conflict");
+          selectDraft(earlier);
+        } else {
+          await accept(newLocal(draft), null, true);
+          setPanel(null);
+        }
+      } catch (error) { fail(error); }
+    });
+  }
+
+  function nextGame() {
+    if (!current) return;
+    try { save(activeKey, null); } catch { setWarning("storage"); }
+    setNext(current.draft);
+    setCurrent(null);
+    setPanel(null);
+    void pullCatalog();
+    window.scrollTo(0, 0);
+  }
+
+  const close = () => { setPanel(null); setRestore(""); };
+
+  return <section className="ref-shell" data-referee>
+    <div className="ref-topline">
+      <Link href="/" aria-label="Mafia League" className="ref-brand">MAFIA <i>LEAGUE</i></Link>
+      <div className="ref-context">
+        <h1>{t("hostGame")}</h1>
+        {current && <span>{evening?.place ?? t("evening")} · {t("round")} {current.draft.round} · {t(current.draft.format)}</span>}
+      </div>
+      <div className="ref-sync" role="status">
+        {!online && <span className="ref-offline">{t("offline")}</span>}
+        {draftStatus && <span>{t(draftStatus)}</span>}
+        {!current && <LanguageSwitch />}
+      </div>
+    </div>
+    {warning && <div role="alert" className="ref-notice">
+      {t(warning)}{warning === "localConflict" && current && <button type="button" onClick={() => {
+        const latest = get(current.draft.id);
+        if (latest) selectDraft(latest);
+      }}>{t("reload")}</button>}
+    </div>}
+    {notice && <div role="status" className="ref-notice">{t(notice)}</div>}
+    {!ready ? <p className="ref-notice">{t("wait")}</p> : legacy ?
+      <Legacy draft={legacy} t={t} onClose={() => setLegacy(null)} /> :
+      current && state ? state.result ?
+        <div className="ref-review" data-step="review">
+          <div className="ref-banner">
+            <span>{fullDateTime(current.draft.startedAt, locale)} · {t(current.draft.format)}</span>
+            <h2>{t("review")}</h2>
+            <p>{current.status === "approved" ? t("approved") : t("reviewHint")}</p>
+          </div>
+          <div className="ref-section">
+            <h3>{t(state.result.outcome)} {state.result.technical && "· " + t("technicalResult")}</h3>
+            <p>{t("host")} · {current.draft.host.name || "—"}</p>
+            <p>{state.result.basis}</p>
+            {state.best && <p>{t("best")} · {state.best.join(", ")} · {t("hits")} {bestHits(state)}</p>}
+            {state.gaps.length > 0 && <ul>{[...new Set(state.gaps)].map((gap) => <li key={gap}>{t(gap as Word)}</li>)}</ul>}
+            {current.note && <p className="ref-notice">{current.note}</p>}
+            {current.outbox && <p className="ref-notice">{t("reconnect")}</p>}
+            <button type="button" onClick={() => setPanel("roles")}>{t("private")}</button>
+          </div>
+          <div className="ref-actions">
+            {(!protectedStatus && !busy || current.outbox) &&
+              <button type="button" className="primary" disabled={busy} onClick={() => sync("submit")}>{t("submit")}</button>}
+            {current.revision > 0 && <button type="button" disabled={busy} onClick={() => sync("read")}>{t("refresh")}</button>}
+            <button type="button" className={protectedStatus || !online ? "primary" : ""} onClick={nextGame}>{t("nextGame")}</button>
+            <button type="button" onClick={() => setPanel("more")}>{t("more")}</button>
+          </div>
+        </div> :
+        <Live key={current.draft.id}
+          draft={current.draft} state={state} t={t} act={act} tools={() => setPanel("more")} disabled={busy || !!protectedStatus} />
+      : <>
+          <Setup key={next?.id ?? "new"} catalog={catalog} locale={locale} t={t} last={next}
+            localRounds={sessions.filter((item) => !!replay(item.draft).state.result && item.status !== "rejected").map((item) => item.draft).reverse()}
+            onStart={init} />
+          <div className="ref-section">
+            {catalogError && <p>{t("unavailable")}</p>}
+            {sessions.length > 0 && <><h3>{t("savedDrafts")}</h3>
+              <div className="ref-roster">{sessions.map((record) => <button type="button" key={record.draft.id} onClick={() => selectDraft(record)}>
+                {t(record.draft.format)} · {t("round")} {record.draft.round} · {fullDateTime(record.draft.startedAt, locale)} · {t(record.outbox ? "outbox" : record.status === "draft" ? "local" : record.status)}
+              </button>)}</div>
+            </>}
+            <button type="button" onClick={() => setPanel("restore")}>{t("restore")}</button>
+          </div>
+        </>}
+    {panel === "more" && current && state && <Sheet title={t("more")} close={close}>
+      <div className="ref-actions">
+        <button type="button" onClick={() => setPanel("journal")}>{t("journal")}</button>
+        {state.phase !== "setup" && <button type="button" onClick={() => setPanel("roles")}>{t("private")}</button>}
+        {!protectedStatus && !current.outbox && <>
+          <button type="button" disabled={busy} onClick={() => sync("save")}>{t("save")}</button>
+          <button type="button" onClick={() => { setNote(""); setPanel("note"); }}>{t("note")}</button>
+          {!state.result && <button type="button" onClick={() => setPanel("correction")}>{t("roleSwap")}</button>}
+          <UndoRedo draft={current.draft} t={t} act={async (action) => { const draft = await act(action); if (draft) close(); return draft; }} />
+        </>}
+        <button type="button" onClick={() => void download(current.draft).catch(() => setWarning("storage"))}>{t("export")}</button>
+        {current.revision > 0 && <>
+          <button type="button" onClick={() => setPanel("code")}>{t("showCode")}</button>
+          <button type="button" disabled={busy} onClick={() => { if (window.confirm(t("restoreConfirm"))) void sync("read", true); }}>{t("restoreRemote")}</button>
+        </>}
+      </div>
+    </Sheet>}
+    {panel === "note" && <Sheet title={t("note")} close={close}>
+      <label>{t("reason")}<input value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} /></label>
+      <button type="button" className="primary" disabled={note.trim().length < 3 || busy}
+        onClick={async () => { if (await act({ type: "note", reason: note })) close(); }}>{t("next")}</button>
+    </Sheet>}
+    {panel === "roles" && current && state && <Sheet title={t("private")} close={close}>
+      <PrivateRoster draft={current.draft} state={state} t={t} />
+    </Sheet>}
+    {panel === "correction" && current && state && <RoleCorrection draft={current.draft} state={state} t={t} act={act} close={close} />}
+    {panel === "journal" && current && <Sheet title={t("journal")} close={close}>
+      <Journal draft={current.draft} t={t} locale={locale} />
+    </Sheet>}
+    {panel === "code" && current && <Sheet title={t("recoverCloud")} close={close}>
+      <p>{t("privateUse")}</p>
+      <input readOnly aria-label={t("recoverCloud")} value={current.draft.id + "." + current.secret} />
+      <div className="ref-actions">
+        <button type="button" onClick={() => {
+          void navigator.clipboard.writeText(current.draft.id + "." + current.secret)
+            .then(() => { close(); setNotice("codeCopied"); }).catch(() => setWarning("storage"));
+        }}>{t("copyCode")}</button>
+        <button type="button" disabled={busy} onClick={() => { if (window.confirm(t("revokeConfirm"))) void sync("revoke"); }}>{t("revoke")}</button>
+      </div>
+    </Sheet>}
+    {panel === "restore" && <Sheet title={t("restore")} close={close}>
+      <label>{t("recoverCloud")}<input type="password" autoComplete="off" value={restore} onChange={(e) => setRestore(e.target.value)} /></label>
+      <button type="button" disabled={!restore || busy} onClick={recover}>{t("restore")}</button>
+      <input type="file" accept=".json,application/json" aria-label="JSON" onChange={(e) => { const file = e.target.files?.[0]; if (file) void upload(file); }} />
+    </Sheet>}
+  </section>;
+}
+
+const journalLabels: Record<Action["type"], Word> = {
+  role: "roles", roleSwap: "roleSwap", advance: "next", speechStart: "speech", nominate: "nominate",
+  discipline: "discipline", count: "count", confirmVote: "confirmVote", joint: "joint", shot: "shot",
+  shotNone: "shot", check: "nightWindow", best: "best", finish: "finish", exception: "technicalResult",
+  note: "note", undo: "undo", redo: "redo",
+};
+
+export function Journal({ draft, locale, t }: { draft: Draft; locale: "ru" | "uk"; t: Translate }) {
+  return <ol className="ref-journal">{draft.events.map(({ id, at, action }, index) => <li key={id}>
+    <span>{index + 1}. {t(journalLabels[action.type])} · {new Date(at).toLocaleTimeString(locale)}</span>
+    {"reason" in action && action.reason && <small>{action.reason}</small>}
+    {"seat" in action && <small>№{action.seat}</small>}
+    {"seconds" in action && action.seconds !== null && <small>{action.seconds} с</small>}
+    {action.type === "check" && <small>{action.target ? "№" + action.target + " · " : ""}
+      {t(action.answer ?? (action.mode === "observed" ? "nightWindow" : action.mode))}</small>}
+    {action.type === "shot" && <small>№{action.target}</small>}
+    {action.type === "shotNone" && <small>{t(action.mode)}</small>}
+    {action.type === "count" && <small>{action.value}</small>}
+    {action.type === "joint" && <small>{action.yes}</small>}
+  </li>)}</ol>;
+}
+
+function Legacy({ draft, onClose, t }: { draft: OldDraft; onClose: () => void; t: Translate }) {
+  const table = derive(draft);
+  return <div className="ref-section">
+    <h2>{t("legacy")}</h2>
+    <p>{draft.title} · {t(draft.format)} · {t("round")}</p>
+    <p>{t("legacyHint")}</p>
+    <p>{table.seats.map((p) => p.localNickname).join(" · ")}</p>
+    <div className="ref-actions"><button type="button" onClick={onClose}>{t("back")}</button>
+      <Link href="/admin/referee">{t("legacy")}</Link></div>
+  </div>;
+}

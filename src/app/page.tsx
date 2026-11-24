@@ -1,15 +1,22 @@
 import { siteText } from "@/lib/i18n/site";
 import { getLocale } from "@/lib/i18n/server";
 import Link from "next/link";
+import { Suspense } from "react";
+import { hasSupabaseConfig } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/supabase/server";
+import { RsvpPanel } from "./evenings/rsvp-panel";
+import { InviteButton } from "./invite-button";
 import { DEMO_FORMATS } from "@/lib/demo";
 import {
   getLeagueStats,
   getNextEvening,
+  getPlayerProfile,
   getRecentGames,
   getTopPlayers,
   showDemoBadge,
 } from "@/lib/data";
 import { Avatar, ButtonLink, Card } from "@/components/ui";
+import { SkillValue } from "@/components/skill";
 
 export default async function Home() {
   const locale = await getLocale();
@@ -21,6 +28,17 @@ export default async function Home() {
     getLeagueStats(),
   ]);
   const demo = showDemoBadge();
+  let profileId: string | null = null;
+  if (hasSupabaseConfig()) {
+    const db = await createServerSupabase();
+    const { data } = await db.auth.getClaims();
+    if (data?.claims) {
+      const { data: player } = await db.from("players").select("id").eq("user_id", data.claims.sub).maybeSingle();
+      profileId = player?.id ?? null;
+    }
+  }
+
+  const ownProfile = profileId ? await getPlayerProfile(profileId) : null;
 
   return (
     <>
@@ -32,16 +50,25 @@ export default async function Home() {
         />
         <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24">
           <h1 className="max-w-3xl font-display text-4xl leading-tight font-bold sm:text-6xl">{t("Мафия объединяет в Граце")}</h1>
-          <p className="mt-5 max-w-xl text-lg text-muted">{t("Регулярные игровые вечера, дружеское сообщество и развитие через игру. Добро пожаловать!")}</p>
+          <p className="mt-5 max-w-xl text-lg text-muted">{t("Участие бесплатное. Играем в спортивную мафию в Граце.")}</p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <ButtonLink href="/evenings">{t("Записаться на вечер")}</ButtonLink>
-            <ButtonLink href="/learn" variant="outline">{t("Я новичок — как начать?")}</ButtonLink>
+            <ButtonLink href="/referee" variant="outline">{t("Вести игру")}</ButtonLink>
+            {profileId
+              ? <ButtonLink href={`/players/${profileId}`} variant="outline">{t("Мой профиль")}</ButtonLink>
+              : <InviteButton />}
           </div>
+          {ownProfile ? <div className="mt-6 flex max-w-md flex-wrap items-center gap-5 rounded-panel border border-border bg-surface/70 p-4">
+            <div><p className="text-sm text-muted">{t("Сыграно партий")}</p><b className="text-xl tabular-nums">{ownProfile.games}</b></div>
+            <SkillValue stats={ownProfile} locale={locale} compact />
+          </div> : (
           <ul className="mt-8 grid max-w-3xl gap-3 text-sm text-muted sm:grid-cols-3">
             <li>{t("Дружеская атмосфера")}</li>
             <li>{t("Играем по правилам спортивной Мафии")}</li>
             <li>{t("Новичкам всегда рады")}</li>
           </ul>
+          )}
+
         </div>
       </section>
 
@@ -63,8 +90,8 @@ export default async function Home() {
               <ul className="mt-4 space-y-1.5 text-sm text-muted">
                 <li>
                   <span className="font-medium text-text">
-                    {evening.signedUp} {t("из")} {evening.capacity}
-                  </span>{" "}{t("уже записались")}</li>
+                    {t("Подтверждено")} · {evening.signedUp + Number(!!evening.hostName && !evening.hostInSignups)}
+                  </span>{" · "}{t("Для партии нужно")} {evening.capacity + 1} {t("включая ведущего")}</li>
                 {evening.hostName && <li>{t("Ведущий:")} {evening.hostName}</li>}
               </ul>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -76,13 +103,13 @@ export default async function Home() {
           )}
         </Card>
 
-        <Card title={t("О клубе")}>
+        {profileId && evening?.id ? <Suspense><RsvpPanel eveningId={evening.id} /></Suspense> : <Card title={t("О клубе")}>
           <p className="text-muted">{t("MAFIA LEAGUE — сообщество любителей спортивной Мафии в Граце. Мы регулярно проводим игровые вечера, встречаем новичков, помогаем учиться и развиваться и создаём атмосферу, в которой хочется возвращаться.")}</p>
           <Link
             href="/learn"
             className="mt-4 inline-flex min-h-11 items-center text-sm text-accent-text hover:underline"
           >{t("Узнать больше о клубе →")}</Link>
-        </Card>
+        </Card>}
 
         <Card title={t("Формат игры")}>
           <ul className="grid gap-3 sm:grid-cols-2">

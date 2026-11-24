@@ -35,8 +35,8 @@ export function shortDate(iso: string, locale: Locale = "ru") {
 }
 
 export const FORMAT_LABEL = {
-  classic10: "Классика 10",
-  short9: "Short9",
+  classic10: "Классика",
+  short9: "Девятка",
 } as const;
 
 export const STATUS_LABEL = {

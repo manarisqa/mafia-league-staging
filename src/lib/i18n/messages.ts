@@ -4,7 +4,7 @@ export const LOCALE_COOKIE = "mafia-locale";
 export function parseLocale(value: unknown): Locale { return value === "uk" ? "uk" : "ru"; }
 
 const ru = {
-  home: "Главная", evenings: "Вечера", players: "Игроки", rating: "Рейтинг", history: "История", learn: "Обучение",
+  home: "Главная", games: "Игры", hostGame: "Вести игру", evenings: "Вечера", players: "Игроки", rating: "Рейтинг", history: "История", learn: "Обучение",
   navigation: "Основная навигация", mobileNavigation: "Мобильная навигация", footerNavigation: "Навигация в подвале",
   openMenu: "Открыть меню", closeMenu: "Закрыть меню", language: "Язык сайта",
   footer: "Сообщество любителей спортивной Мафии в Граце. Новичкам всегда рады.", location: "Грац, Австрия",
@@ -23,7 +23,7 @@ const ru = {
 
 export type MessageKey = keyof typeof ru;
 const uk: Record<MessageKey, string> = {
-  home: "Головна", evenings: "Вечори", players: "Гравці", rating: "Рейтинг", history: "Історія", learn: "Навчання",
+  home: "Головна", games: "Ігри", hostGame: "Вести гру", evenings: "Вечори", players: "Гравці", rating: "Рейтинг", history: "Історія", learn: "Навчання",
   navigation: "Основна навігація", mobileNavigation: "Мобільна навігація", footerNavigation: "Навігація внизу сторінки",
   openMenu: "Відкрити меню", closeMenu: "Закрити меню", language: "Мова сайту",
   footer: "Спільнота шанувальників спортивної Мафії у Граці. Новачкам завжди раді.", location: "Грац, Австрія",

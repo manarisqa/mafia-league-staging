@@ -12,10 +12,11 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const NAV = [
-  { href: "/admin", label: "Обзор" },
+  { href: "/admin", label: "Сегодня" },
   { href: "/admin/evenings", label: "Вечера" },
   { href: "/admin/games", label: "Партии" },
-  { href: "/admin/referee", label: "Ведущий" },
+  { href: "/admin/referee/inbox", label: "Проверка протоколов" },
+  { href: "/admin/referee", label: "Архив пульта" },
   { href: "/admin/players", label: "Игроки" },
 ];
 

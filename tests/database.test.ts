@@ -200,7 +200,7 @@ test("own RSVP supports every existing status and cancellation, but not another 
   await db.query("select set_rsvp($1,$2,'cancel',$3)", [EVENING, userPlayer, rev]);
   assert.equal((await db.query("select * from evening_signups where player_id=$1", [userPlayer])).rows.length, 0);
 });
-test("RSVP rejects stale updates, delete/recreate ABA and full-table admission", async () => {
+test("RSVP rejects stale updates and delete/recreate ABA with uncapped attendance", async () => {
   await actor(USER);
   const rev = Number((await db.query<{ rev: number }>("select set_rsvp($1,$2,'going',0) as rev", [EVENING, userPlayer])).rows[0].rev);
   await db.query("select set_rsvp($1,$2,'cancel',$3)", [EVENING, userPlayer, rev]);
@@ -212,8 +212,8 @@ test("RSVP rejects stale updates, delete/recreate ABA and full-table admission",
   await db.exec("set constraints all immediate; set constraints all deferred");
   await actor(ADMIN);
   const other = (await db.query<{ id: string }>("select id from players where id not in(select player_id from evening_signups where evening_id=$1) order by id limit 1", [EVENING])).rows[0].id;
-  await reject("select set_rsvp($1,$2,'late',0)", [EVENING, other], /места заняты/);
-  await db.query("select set_rsvp($1,$2,'maybe',0)", [EVENING, other]);
+  await db.query("select set_rsvp($1,$2,'late',0)", [EVENING, other]);
+  assert.equal((await db.query<{count: number}>("select count(*)::int from evening_signups where evening_id=$1 and status in ('going','late')", [EVENING])).rows[0].count, 11);
 });
 for (const status of ["finished", "cancelled", "past"] as const) test(`RSVP insert/update/delete blocked for ${status} evening, including admin`, async () => {
   await db.query("insert into evening_signups(evening_id,player_id,status) values($1,$2,'going')", [EVENING, userPlayer]);
@@ -260,13 +260,14 @@ test("complete valid transaction passes deferred checks even when parent is inse
   await db.exec("set constraints all immediate");
   assert.equal((await db.query<{n:number}>("select count(*)::int as n from game_players where game_id=$1",[g])).rows[0].n,10);
 });
-test("capacity reduction rolls back evening fields and private note together", async () => {
+test("physical table size can change without deleting or capping attendance", async () => {
   await db.query("insert into evening_signups(evening_id,player_id,status) select $1,id,'going' from players where id not in(select player_id from evening_signups where evening_id=$1) order by id limit 4",[EVENING]);
   const e=(await db.query<{revision:number;starts_at:Date;season_id:string}>("select * from evenings where id=$1",[EVENING])).rows[0];
   await actor(ADMIN);
-  await reject("select save_evening($1,$2,$3,'Changed',9::smallint,'planned',$4,'SHOULD ROLLBACK',$5)",[EVENING,e.revision,e.starts_at.toISOString(),HOST,e.season_id],/места заняты/);
-  assert.equal(await rowRevision(db,"evenings",EVENING),Number(e.revision));
-  assert.equal((await db.query<{note:string}>("select note from evening_notes where evening_id=$1",[EVENING])).rows[0].note,"PRIVATE TEST NOTE");
+  await db.query("select save_evening($1,$2,$3,'Changed',9::smallint,'planned',$4,'UPDATED NOTE',$5)",[EVENING,e.revision,e.starts_at.toISOString(),HOST,e.season_id]);
+  assert.ok(await rowRevision(db,"evenings",EVENING) > Number(e.revision));
+  assert.equal((await db.query<{note:string}>("select note from evening_notes where evening_id=$1",[EVENING])).rows[0].note,"UPDATED NOTE");
+  assert.equal((await db.query<{count:number}>("select count(*)::int from evening_signups where evening_id=$1 and status in ('going','late')",[EVENING])).rows[0].count,10);
 });
 for(const problem of ["composition","capacity"] as const) test(`migration fails atomically on historical ${problem} corruption`,async()=>{
   const old=await database(false,true);

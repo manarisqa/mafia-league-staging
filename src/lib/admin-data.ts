@@ -158,3 +158,10 @@ export async function adminSeasons(db: SupabaseClient) {
   if (error) throw new Error("Не удалось загрузить сезоны");
   return data;
 }
+
+export async function adminRelevantEvening(db: SupabaseClient) {
+  const earliest = new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString();
+  const { data } = await db.from("evenings").select("id,place,starts_at").eq("status", "planned")
+    .gte("starts_at", earliest).order("starts_at").limit(1).maybeSingle();
+  return data;
+}

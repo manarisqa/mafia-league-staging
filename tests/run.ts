@@ -5,3 +5,6 @@ import "./rating.test";
 import "./referee.test";
 import "./referee-layout.test";
 import "./identity.test";
+
+import "./guided-referee.test";
+import "./guided-database.test";

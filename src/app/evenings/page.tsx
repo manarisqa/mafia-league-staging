@@ -24,6 +24,11 @@ export default async function EveningsPage() {
         subtitle={t("Дружеская атмосфера, живое общение и развитие через игру. Добро пожаловать!")}
       />
 
+      <nav className="mx-auto flex max-w-3xl flex-wrap gap-3 px-4 pt-5 sm:px-6" aria-label={t("Игровая история")}>
+        <ButtonLink href="/evenings" variant="outline">{t("Вечера и запись")}</ButtonLink>
+        <ButtonLink href="/history" variant="outline">{t("История игр")}</ButtonLink>
+        <ButtonLink href="/referee">{t("Вести игру")}</ButtonLink>
+      </nav>
       <div className="mx-auto max-w-3xl space-y-4 px-4 py-10 sm:px-6">
         {!e ? (
           <Card>
@@ -62,8 +67,8 @@ export default async function EveningsPage() {
             <Card title={t("Участники")} locale={locale} demo={demo}>
               <p className="mb-4 text-sm text-muted">
                 <span className="font-medium text-text">
-                  {e.signedUp} {t("из")} {e.capacity}
-                </span>{" "}{t("уже записались")}</p>
+                  {t("Подтверждено")} · {e.signedUp + Number(!!e.hostName && !e.hostInSignups)}
+                </span>{" · "}{t("Для партии нужно")} {e.capacity + 1} {t("включая ведущего")}</p>
               <ul className="flex flex-wrap gap-4">
                 {e.participants.map(({ id, name }) => (
                   <li key={id} className="flex w-16 flex-col items-center gap-1 text-center">
@@ -71,17 +76,6 @@ export default async function EveningsPage() {
                     <span className="w-full truncate text-xs text-muted">{name}</span>
                   </li>
                 ))}
-                {e.capacity > e.signedUp && (
-                  <li className="flex w-16 flex-col items-center gap-1 text-center">
-                    <span
-                      aria-hidden
-                      className="flex size-[52px] items-center justify-center rounded-full border border-dashed border-border text-muted"
-                    >
-                      +
-                    </span>
-                    <span className="text-xs text-muted">{t("ещё")} {e.capacity - e.signedUp}</span>
-                  </li>
-                )}
               </ul>
             </Card>
 

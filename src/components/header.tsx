@@ -51,7 +51,10 @@ export function Header({ authBar, authMenu }: { authBar: ReactNode; authMenu: Re
           </ul>
         </nav>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Link href="/referee" className="inline-flex min-h-11 items-center whitespace-nowrap rounded-control bg-accent px-3 text-sm font-semibold hover:bg-accent-hover">
+            {t("hostGame")}
+          </Link>
           <div className="hidden xl:block"><LanguageSwitch /></div>
           {authBar}
           <button
