@@ -584,8 +584,8 @@ async function prepareEvening() {
 
     const guest = await guestContext.newPage();
     await guest.goto(app + "/referee");
-    await guest.getByRole("combobox", { name: "Вечер", exact: true }).selectOption(id);
-    await guest.locator(".ref-setup").getByText(place, { exact: false }).waitFor();
+    await guest.getByRole("combobox", { name: "Игровой вечер", exact: true }).selectOption(id);
+    await guest.locator(".ref-setup .ref-banner").getByText(place, { exact: false }).waitFor();
     assert.equal(await guest.getByRole("combobox", { name: "Ведущий", exact: true })
       .evaluate((select) => select.selectedOptions[0]?.textContent), "Ведущий");
     const catalog = await guest.request.get(app + "/api/referee/catalog");
