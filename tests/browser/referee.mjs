@@ -696,6 +696,12 @@ async function restartScenarios() {
       await page.getByText("Ждёт отправки", { exact: true }).waitFor();
       const queued = await currentAttempt(page);
       await click(page, "Ещё");
+      let oldFile;
+      if (short) {
+        const exported = page.waitForEvent("download");
+        await click(dialog(page), "Скачать приватный JSON");
+        oldFile = await (await exported).path();
+      }
       await click(dialog(page), restartLabel);
       const replacement = await confirmRestart(page, queued);
       const traffic = [];
@@ -716,6 +722,7 @@ async function restartScenarios() {
       const unchanged = await catalog();
       assert.deepEqual(unchanged.history, before.history);
       assert.deepEqual(unchanged.evenings, before.evenings);
+      if (oldFile) await checkPortableCancellation(oldFile, queued.draft.round);
       await admin.goto(app + "/admin/referee/inbox");
       for (const attempt of [old, voter, queued]) {
         assert.equal(await admin.locator(`a[href="/admin/referee/inbox/${attempt.draft.id}"]`).count(), 0);
@@ -766,6 +773,22 @@ async function restartScenarios() {
     await context.close();
     console.log("PASS: Ukrainian confirmation from role assignment.");
   } finally { await adminContext.close(); }
+}
+
+async function checkPortableCancellation(file, round) {
+  const context = await browser.newContext({ viewport: { width: 820, height: 1180 } });
+  try {
+    const page = await context.newPage();
+    await page.goto(app + "/referee");
+    await click(page, "Восстановить черновик");
+    await dialog(page).getByLabel("JSON").setInputFiles(file);
+    await waitStep(page, "review");
+    await click(page, "Следующая партия");
+    await page.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
+    await page.locator(".ref-setup").getByText(new RegExp("Партия " + round + "$")).waitFor();
+  } finally {
+    await context.close();
+  }
 }
 
 async function confirmRestart(page, prior, label = restartLabel, clickCount = 1) {

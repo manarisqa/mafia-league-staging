@@ -17,7 +17,7 @@ type Cancellation = {
 export type LocalDraft = {
   draft: Draft; secret: string; serial: number; revision: number; status: Status; synced: number;
   outbox: boolean; note: string | null;
-  slot?: string; cancellations?: Cancellation[]; discarded?: string[];
+  slot?: string; cancellations?: Cancellation[]; discarded?: string[]; fromFile?: boolean;
 };
 
 export function read<T>(key: string): T | null {
@@ -82,7 +82,7 @@ export function restartLocal(record: LocalDraft): LocalDraft {
   const at = new Date().toISOString();
   const next = newLocal({ ...record.draft, id: crypto.randomUUID(), startedAt: at, events: [] });
   return {
-    ...next, slot: slotOf(record), discarded: record.discarded,
+    ...next, slot: slotOf(record), discarded: record.discarded, fromFile: record.fromFile,
     cancellations: [...(record.cancellations ?? []), {
       id: record.draft.id, secret: record.secret, at, startedAt: record.draft.startedAt,
       replacement: next.draft.id, state: "pending",

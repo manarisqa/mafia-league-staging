@@ -33,13 +33,20 @@ function isCatalog(value: unknown): value is Catalog {
 }
 
 function playedRounds(sessions: LocalDraft[]) {
-  const rounds = new Map<string, Draft>();
-  for (const { draft, status, cancellations } of [...sessions].reverse()) {
+  const rounds = new Map<string, LocalDraft>();
+  const priority = (status: LocalDraft["status"]) => status === "approved" ? 2 : status === "draft" ? 0 : 1;
+  for (const record of sessions) {
+    const { draft, status, cancellations } = record;
     if (["rejected", "revoked", "archived"].includes(status) || cancellations?.some((entry) => entry.state === "protected")) continue;
+    // Portable JSON carries no cloud receipt. It might predate a restart on the source device.
+    if (record.fromFile && record.synced < 0) continue;
+    const key = draft.evening + ":" + draft.round;
+    const known = rounds.get(key);
+    if (known && priority(known.status) >= priority(status)) continue;
     const result = replay(draft).state.result;
-    if (result && result.outcome !== "cancelled") rounds.set(draft.evening + ":" + draft.round, draft);
+    if (result && result.outcome !== "cancelled") rounds.set(key, record);
   }
-  return [...rounds.values()].sort((a, b) => a.round - b.round);
+  return [...rounds.values()].map(({ draft }) => draft).sort((a, b) => a.round - b.round);
 }
 
 export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) {
@@ -316,7 +323,7 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
           if (canonical(earlier.draft) !== canonical(draft)) throw new Error("conflict");
           selectDraft(earlier);
         } else {
-          await accept(newLocal(draft), null, true);
+          await accept({ ...newLocal(draft), fromFile: true }, null, true);
           setPanel(null);
         }
       } catch (error) { fail(error); }
