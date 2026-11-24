@@ -23,8 +23,8 @@ const seat = (root, number) => root.getByRole("button", { name: new RegExp("^" +
 const dialog = (page) => page.getByRole("dialog");
 const next = (page) => click(page, "Далее");
 
-async function fit(page, label) {
-  const button = btn(page, label);
+async function fit(page, label, root = page) {
+  const button = btn(root, label);
   await button.waitFor();
   assert(await button.evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -42,7 +42,7 @@ async function login(context, email) {
   return page;
 }
 
-async function start(page, short = false, capture = true, stopAtShortCheck = false) {
+async function start(page, short = false, capture = true, stopAtShortCheck = false, inspectBoard) {
   await page.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
   if (short) await click(page, "Девятка · 9");
   if (!short) {
@@ -53,6 +53,7 @@ async function start(page, short = false, capture = true, stopAtShortCheck = fal
   for (const player of ["Тінь", "Капітан", "Луна", ...(short ? [] : ["Фенікс"])]) await click(page, player);
   await click(page, "Предложить состав");
   await click(page, "Рассадить");
+  await inspectBoard?.("seating", "Подтвердить места");
   if (!short && capture) {
     await shot(page, "02-classic-seating-ipad");
     await seat(page, 1).click();
@@ -62,6 +63,7 @@ async function start(page, short = false, capture = true, stopAtShortCheck = fal
   }
   await click(page, "Подтвердить места");
   await waitStep(page, "roles");
+  await inspectBoard?.("cards", "Мирный " + (short ? 5 : 6));
   const civilians = short ? 5 : 6;
   for (let i = civilians; i > 0; i--) await click(page, "Мирный " + i);
   await click(page, "Шериф 1");
@@ -169,6 +171,12 @@ async function saveResult(page, networkLoss = false) {
   const malformed = await page.request.post(app + "/api/referee/draft", { data: { ...sent, payload: { ...sent.payload, events: [] } } });
   assert.equal(malformed.status(), 422);
   return sent;
+}
+
+if (["before", "after"].includes(process.env.QA_GEOMETRY)) {
+  try { await roundTable(process.env.QA_GEOMETRY); }
+  finally { await browser.close(); }
+  process.exit(0);
 }
 
 if (process.env.QA_ACCEPTANCE_ONLY === "1" || process.env.QA_CAPTURE_BASELINE === "1") {
@@ -528,9 +536,7 @@ async function clubRegression() {
   console.log("PASS: registration with Cyrillic, RSVP going/maybe/cancel, signed-in home, profile, Skill and sign-out.");
 }
 
-async function acceptance(baseline) {
-  const prefix = baseline ? "before" : "after";
-  const context = await browser.newContext({ viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true });
+async function seedSyntheticDraw(context) {
   await context.addInitScript(() => {
     // Freeze the synthetic draw for matched screenshots. IDs and recovery tokens still use normal crypto.
     const getRandomValues = crypto.getRandomValues.bind(crypto);
@@ -542,6 +548,12 @@ async function acceptance(baseline) {
       return array;
     };
   });
+}
+
+async function acceptance(baseline) {
+  const prefix = baseline ? "before" : "after";
+  const context = await browser.newContext({ viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true });
+  await seedSyntheticDraw(context);
   const page = await context.newPage();
   await page.goto(app + "/referee");
   await start(page, false, false);
@@ -930,15 +942,171 @@ async function checkSeats(page, expected, root = page.locator(".ref-arena")) {
     };
     return {
       scroll: document.documentElement.scrollWidth, width: innerWidth,
-      seats: Array.from(board.querySelectorAll(".ref-seat"), rect),
-      host: rect(board.querySelector(".ref-host")),
+      seats: Array.from(board.querySelectorAll(".ref-seat"), (node) => {
+        const badge = node.querySelector(".ref-seat-debt");
+        return { ...rect(node), number: node.dataset.seat, badge: badge ? rect(badge) : null };
+      }),
+      host: { ...rect(board.querySelector(".ref-host")), number: "host" },
     };
   });
   assert.equal(geometry.seats.length, expected);
   assert(geometry.scroll <= geometry.width, "The layout overflows horizontally");
   assert(geometry.seats.every((r) => r.width >= 44 && r.height >= 44 && r.left >= 0 && r.right <= geometry.width));
+  const apart = (a, b) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
   for (const [i, a] of geometry.seats.entries()) for (const b of [...geometry.seats.slice(i + 1), geometry.host]) {
-    assert(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top,
-      "Physical seat targets overlap at " + geometry.width + "px");
+    assert(apart(a, b) && (!a.badge || apart(a.badge, b)) && (!b.badge || apart(a, b.badge)),
+      `Seat ${a.number} and ${b.number} overlap at ${geometry.width}px: ${JSON.stringify([a, b])}`);
   }
+}
+
+async function roundTable(mode) {
+  const primary = { width: 820, height: 1180 };
+  const compact = { width: 768, height: 1024 };
+  const adapt = [{ width: 375, height: 812 }, { width: 390, height: 844 },
+    { width: 1180, height: 820 }, { width: 1440, height: 1000 }];
+  const measurements = [];
+  for (const short of [false, true]) {
+    const format = short ? "short9" : "classic10";
+    const count = short ? 9 : 10;
+    const context = await browser.newContext({ viewport: primary, isMobile: true, hasTouch: true });
+    await seedSyntheticDraw(context);
+    const page = await context.newPage();
+    const arena = page.locator(".ref-arena");
+    let positions;
+    async function inspect(scene, root, actions = []) {
+      const board = root.locator(".ref-board");
+      await board.waitFor();
+      await page.evaluate(() => { window.scrollTo(0, 0); });
+      const geometry = await board.evaluate((el) => {
+        const bounds = el.getBoundingClientRect();
+        const table = el.querySelector(".ref-table").getBoundingClientRect();
+        const cards = Array.from(el.querySelectorAll(".ref-seat"));
+        const seat = cards[0].getBoundingClientRect();
+        return {
+          table: [table.width, table.height],
+          seat: [seat.width, seat.height],
+          number: parseFloat(getComputedStyle(cards[0].querySelector("b")).fontSize),
+          name: parseFloat(getComputedStyle(cards[0].querySelector(".ref-seat-name")).fontSize),
+          positions: cards.map((card) => {
+            const rect = card.getBoundingClientRect();
+            return [(rect.left + rect.width / 2 - bounds.left) / bounds.width, (rect.top + rect.height / 2 - bounds.top) / bounds.height];
+          }),
+        };
+      });
+      const ratio = geometry.table[0] / geometry.table[1];
+      const viewport = page.viewportSize();
+      if (mode === "after") {
+        await checkSeats(page, count, root);
+        assert(ratio >= 1 && ratio <= 1.2, `Table ratio ${ratio} at ${format}/${scene}/${viewport.width}`);
+        if (viewport.width === primary.width || viewport.width === compact.width) {
+          assert(geometry.seat[0] >= 125 && geometry.seat[1] >= 56);
+          assert(geometry.number >= 20 && geometry.name >= 14);
+          for (const action of actions) {
+            await fit(page, action, root);
+            assert(await btn(root, action).evaluate((el) => {
+              const { left, right, top, bottom } = el.getBoundingClientRect();
+              const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+              return el.contains(hit);
+            }), `${action} is clipped or covered in ${scene} at ${viewport.width}×${viewport.height}`);
+          }
+        }
+        if (positions) geometry.positions.forEach(([x, y], i) => {
+          assert(Math.abs(x - positions[i][0]) < 0.001 && Math.abs(y - positions[i][1]) < 0.001,
+            `Seat ${i + 1} moved between screens in ${format}`);
+        });
+        positions ??= geometry.positions;
+      }
+      const { table, seat, name, number } = geometry;
+      measurements.push({ format, scene, viewport, ratio: +ratio.toFixed(3), table: table.map(Math.round),
+        seat: seat.map(Math.round), name: +name.toFixed(1), number: +number.toFixed(1) });
+    }
+
+    await page.goto(app + "/referee");
+    await start(page, short, false, true, async (scene, action) => {
+      const root = scene === "seating" ? page.locator(".ref-setup") : page.locator(".ref-live");
+      await inspect(scene, root, [action]);
+      if (!short && scene === "seating") await shot(page, mode + "-classic10-seating-ipad");
+    });
+    if (short) {
+      await check(page, 6);
+      await click(page, "Открыть действие");
+      await seat(dialog(page), 9).click();
+      await sameText(dialog(page).locator(".ref-answer span"), "Чёрный");
+      await inspect("private-check", dialog(page), ["×", "Подтвердить показанный ответ"]);
+      await shot(page, mode + "-short9-private-ipad");
+      if (mode === "after") {
+        await page.setViewportSize(adapt[0]);
+        await inspect("private-check", dialog(page));
+        await fit(page, "Подтвердить показанный ответ", dialog(page));
+        await page.setViewportSize(primary);
+      }
+      await btn(dialog(page), "Подтвердить показанный ответ").click();
+      await click(page, "Завершить этап");
+      await click(page, "Объявить утро");
+    }
+    await waitStep(page, "speechReady");
+    await click(page, "Начать речь");
+    await click(page, "Пауза");
+    await seat(page, 4).click();
+    await sanction(page, 3);
+    await disciplineCount(page, 3, 1, 0);
+    await order(page, "[data-nominations]", [4]);
+    await inspect("speech", page.locator(".ref-live"), ["Продолжить", "Закончить речь", "Фол"]);
+    await shot(page, mode + "-" + format + "-speech-ipad");
+    if (mode === "after") {
+      await page.setViewportSize(compact);
+      await inspect("speech", page.locator(".ref-live"), ["Продолжить", "Закончить речь", "Фол"]);
+      await click(page, "Фол");
+      await inspect("discipline", dialog(page), ["×"]);
+      assert(await seat(dialog(page), 3).isEnabled());
+      await page.keyboard.press("Escape");
+      for (const viewport of adapt) {
+        await page.setViewportSize(viewport);
+        await inspect("speech", arena);
+        if (viewport.width <= 390) {
+          await fit(page, "Продолжить");
+          await fit(page, "Закончить речь");
+          await fit(page, "Фол");
+          assert(await page.locator(".ref-focus").evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
+            "Timer controls clip the current speaker on mobile");
+        }
+        if ((short && viewport.width === 375) || (!short && viewport.width === 1440)) {
+          await shot(page, "after-" + format + "-" + viewport.width);
+        }
+      }
+      await page.setViewportSize(compact);
+      await click(page, "Закончить речь");
+      const candidates = Array.from({ length: count }, (_, i) => i + 1).filter((n) => n !== 4);
+      for (const candidate of candidates) {
+        await click(page, "Начать речь");
+        await seat(page, candidate).click();
+        if (candidate === candidates.at(-1)) await inspect("full-speech", page.locator(".ref-live"), ["Закончить речь", "Фол"]);
+        await click(page, "Закончить речь");
+      }
+      await click(page, "Начать подсчёт");
+      await click(page, "0");
+      await order(page, "[data-vote-order]", [4, ...candidates]);
+      await inspect("full-ballot", page.locator(".ref-live"), ["0", "Фол"]);
+      await sanction(page, 3);
+      await sanction(page, 3);
+      await disciplineCount(page, 3, 3, 0);
+      await arena.locator("[data-seat='3'] .ref-seat-debt").waitFor();
+      await page.setViewportSize(adapt[0]);
+      await inspect("ballot-debt", arena);
+      await sanction(page, 3, "technical");
+      await sanction(page, 3, "technical");
+      await disciplineCount(page, 3, 3, 2);
+      await sameText(arena.locator("[data-seat='3'] .ref-seat-exit"), "Удалён");
+      await order(page, "[data-nominations]", [4, ...candidates]);
+      await inspect("cancelled-ballot", arena);
+      await click(page, "Фол");
+      await inspect("discipline", dialog(page));
+      assert(await seat(dialog(page), 3).isDisabled());
+      await page.keyboard.press("Escape");
+      await page.setViewportSize(compact);
+      await inspect("cancelled-ballot", page.locator(".ref-live"), ["Объявить итог дня", "Фол"]);
+    }
+    await context.close();
+  }
+  console.log(JSON.stringify({ mode, measurements }, null, 2));
 }

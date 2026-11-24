@@ -1,4 +1,4 @@
-import { seatPosition } from "@/lib/referee/table-layout";
+import { guidedSeatPosition } from "@/lib/referee/table-layout";
 import type { Format } from "@/lib/referee/guided/protocol";
 import type { State } from "@/lib/referee/guided/reducer";
 import type { Translate } from "./words";
@@ -32,7 +32,7 @@ export function Board({ players, format, selected = [], discipline, speaker, can
         const exit = status?.removed ? "removed" : status && !status.alive ? "eliminated" : null;
         const klass = ["ref-seat", selected.includes(n) && "selected", exit && "out",
           n === speaker && "speaking", n === target?.seat && "target"].filter(Boolean).join(" ");
-        const style = seatPosition(n, format === "classic10" ? 10 : 9);
+        const style = guidedSeatPosition(n, format === "classic10" ? 10 : 9);
         const label = [n + " · " + player.name, status && t("ordinaryCount") + " " + status.fouls + "/4",
           status && t("technicalCount") + " " + status.warnings + "/2", exit && t(exit),
           status?.debt && !exit && t("debt"), n === speaker && t("onSpeech"),

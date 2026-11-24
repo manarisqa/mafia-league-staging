@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { seatPosition } from "../src/lib/referee/table-layout";
+import { guidedSeatPosition, seatPosition } from "../src/lib/referee/table-layout";
 
 const n = (value: string) => Number.parseFloat(value);
 
@@ -23,4 +23,19 @@ test("Short9 has nine distinct, bounded seats without a phantom tenth", () => {
     assert.ok(n(seat.top) > 0 && n(seat.top) < 100);
   }
   assert.throws(() => seatPosition(10, 9), /места/);
+});
+
+test("guided chairs stay clockwise and mirror each other around the host", () => {
+  for (const count of [9, 10] as const) {
+    const seats = Array.from({ length: count }, (_, index) => guidedSeatPosition(index + 1, count));
+    const clockwise = seats.map(({ left, top }) => (Math.atan2(n(left) - 50, 50 - n(top)) * 180 / Math.PI + 540) % 360);
+    assert(clockwise.every((angle, i) => i === 0 || angle > clockwise[i - 1]));
+    assert(n(seats[0].left) < 50 && n(seats[0].top) > 80);
+    for (const [i, seat] of seats.entries()) {
+      const opposite = seats[count - 1 - i];
+      assert(Math.abs(n(seat.left) + n(opposite.left) - 100) < 1e-10);
+      assert(Math.abs(n(seat.top) - n(opposite.top)) < 1e-10);
+    }
+  }
+  assert.throws(() => guidedSeatPosition(10, 9), /места/);
 });
