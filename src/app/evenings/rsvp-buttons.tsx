@@ -36,7 +36,7 @@ export function RsvpButtons({
     <form action={action}>
       <input type="hidden" name="evening_id" value={eveningId} />
       <RevisionField initial={revision} state={state} />
-      <p className="mb-3 text-sm text-muted">{t("Вы вошли как")}<span className="text-text">{name}</span>{t(". Выберите, придёте ли на вечер:")}</p>
+      <p className="mb-3 break-words text-sm text-muted">{t("Вы вошли как")}{" "}<span className="text-text">{name}</span>{t(". Выберите, придёте ли на вечер:")}</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {OPTIONS.map((o) => {
           const active = current === o.value;

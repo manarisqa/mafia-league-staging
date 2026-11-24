@@ -52,7 +52,7 @@ export default async function Home() {
           className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_20%,rgba(170,35,53,0.35),transparent_60%),radial-gradient(ellipse_at_10%_100%,rgba(170,35,53,0.15),transparent_50%)]"
         />
         <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24">
-          <h1 className="max-w-3xl font-display text-4xl leading-tight font-bold sm:text-6xl">{ownProfile ? `${t("Ваш клуб")}, ${ownProfile.name}` : t("Мафия объединяет в Граце")}</h1>
+          <h1 className="max-w-3xl break-words font-display text-4xl leading-tight font-bold sm:text-6xl">{ownProfile ? `${t("Ваш клуб")}, ${ownProfile.name}` : t("Мафия объединяет в Граце")}</h1>
           <p className="mt-5 max-w-xl text-lg text-muted">{t("Участие бесплатное. Играем в спортивную мафию в Граце.")}</p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <ButtonLink href="/evenings">{t("Записаться на вечер")}</ButtonLink>
