@@ -82,3 +82,4 @@ export type Evening = { id: string; place: string; startsAt: string; round: numb
 export type SeatHistory = { id: string; at: string; format: Format; seats: { player: string; seat: number }[] };
 export type Catalog = { players: Player[]; evenings: Evening[]; history: SeatHistory[] };
 export const emptyCatalog: Catalog = { players: [], evenings: [], history: [] };
+export const inEveningWindow = (startsAt: string, now: number) => Date.parse(startsAt) >= now - 18 * 60 * 60 * 1000;

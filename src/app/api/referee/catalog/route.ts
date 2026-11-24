@@ -1,5 +1,6 @@
 import { SnapshotSchema } from "@/lib/league/core";
 import { getPublicClient } from "@/lib/supabase";
+import { inEveningWindow } from "@/lib/referee/guided/protocol";
 
 export async function GET() {
   const db = getPublicClient();
@@ -11,9 +12,10 @@ export async function GET() {
     const legacy = SnapshotSchema.safeParse(fallback.data);
     if (legacy.success) {
       const { players, evenings, games } = legacy.data;
+      const now = Date.now();
       catalog = {
         players: players.map((p) => ({ id: p.id, name: p.display_name, novice: p.status === "newbie" })),
-        evenings: evenings.filter((e) => e.status === "planned" && Date.parse(e.starts_at) >= Date.now() - 64_800_000)
+        evenings: evenings.filter((e) => e.status === "planned" && inEveningWindow(e.starts_at, now))
           .slice(0, 8).map((e) => ({
             id: e.id, place: e.place, startsAt: e.starts_at, host: e.host_player_id, confirmed: [],
             round: 1 + Math.max(0, ...games.filter((g) => g.evening_id === e.id).map((g) => g.game_no)),

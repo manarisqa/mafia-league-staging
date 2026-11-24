@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FAIR_QUEUE, FAIR_SEAT, PROCEDURE, seatCount, type Action, type Draft, type Format } from "../src/lib/referee/guided/protocol";
+import { FAIR_QUEUE, FAIR_SEAT, PROCEDURE, inEveningWindow, seatCount, type Action, type Draft, type Format } from "../src/lib/referee/guided/protocol";
 import { append, checkAnswer, focusSeat, projection, replay, timing, validate } from "../src/lib/referee/guided/reducer";
 import { fairSeats, queue, type Round } from "../src/lib/referee/guided/fair";
 
@@ -9,6 +9,14 @@ const unknown: Action = { type: "check", mode: "unknown", seconds: null };
 const uuid = (i: number) => "00000000-0000-4000-8000-" + String(i).padStart(12, "0");
 const at = "2026-11-24T18:00:00Z";
 const registry = Array.from({ length: 41 }, (_, index) => ({ id: uuid(index + 1), name: "QA " + (index + 1), novice: index > 10 }));
+
+test("the planned-evening window includes the exact 18-hour boundary", () => {
+  const now = Date.parse(at);
+  assert(inEveningWindow("2026-11-24T01:00:00+01:00", now));
+  assert(!inEveningWindow("2026-11-24T00:59:59.999+01:00", now));
+  assert(inEveningWindow("2026-11-24T19:00:00Z", now));
+  assert(!inEveningWindow("invalid", now));
+});
 
 function fixture(format: Format = "classic10") {
   const players = registry.slice(0, seatCount(format));

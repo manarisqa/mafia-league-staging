@@ -42,7 +42,7 @@ async function login(context, email) {
   return page;
 }
 
-async function start(page, short = false, capture = true) {
+async function start(page, short = false, capture = true, stopAtShortCheck = false) {
   await page.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
   if (short) await click(page, "Девятка · 9");
   if (!short) {
@@ -74,6 +74,7 @@ async function start(page, short = false, capture = true) {
   if (!short && capture) await shot(page, "03-classic-n0-ipad");
   await click(page, "Мафия уснула");
   if (short) {
+    if (stopAtShortCheck) return waitStep(page, "donCheck");
     await check(page, 6);
     await check(page, 9);
   } else {
@@ -168,6 +169,12 @@ async function saveResult(page, networkLoss = false) {
   const malformed = await page.request.post(app + "/api/referee/draft", { data: { ...sent, payload: { ...sent.payload, events: [] } } });
   assert.equal(malformed.status(), 422);
   return sent;
+}
+
+if (process.env.QA_ACCEPTANCE_ONLY === "1" || process.env.QA_CAPTURE_BASELINE === "1") {
+  try { await acceptance(process.env.QA_CAPTURE_BASELINE === "1"); }
+  finally { await browser.close(); }
+  process.exit(0);
 }
 
 if (process.env.QA_EDGE_ONLY === "1") {
@@ -296,13 +303,16 @@ try {
   const large = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const admin = await login(large, adminEmail);
   await admin.goto(app + "/admin/referee/inbox");
-  await admin.getByRole("link", { name: /Классика · Партия/ }).first().click();
+  await admin.locator(`a[href="/admin/referee/inbox/${classic.id}"]`).click();
   await admin.getByRole("heading", { name: "Проверьте протокол" }).waitFor();
   await shot(admin, "08-admin-review-desktop");
   await admin.getByLabel("Я проверил наблюдения и причины исправлений").check();
   await click(admin, "Утвердить и опубликовать");
   await admin.getByRole("link", { name: "Открыть игру" }).waitFor();
   const classicGame = await admin.getByRole("link", { name: "Открыть игру" }).getAttribute("href");
+  await admin.reload();
+  assert.equal(await admin.getByRole("link", { name: "Открыть игру" }).getAttribute("href"), classicGame);
+  assert.equal(await btn(admin, "Утвердить и опубликовать").count(), 0);
   await admin.getByRole("link", { name: "Открыть игру" }).click();
   await admin.getByText("Победа красных", { exact: false }).first().waitFor({ timeout: 10000 }).catch(async () => {
     assert((await admin.locator("main").textContent()).includes("Красные"));
@@ -391,6 +401,12 @@ try {
   await admin.getByRole("link", { name: "Открыть игру" }).waitFor();
   const shortGame = await admin.getByRole("link", { name: "Открыть игру" }).getAttribute("href");
   assert.notEqual(classicGame, shortGame);
+  await admin.getByRole("link", { name: "Открыть игру" }).click();
+  await admin.getByText(/Без основного League Skill/).first().waitFor();
+  await click(short, "Следующая партия");
+  await short.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
+  await click(short, "Взять тот же состав");
+  await short.getByRole("heading", { name: "Состав партии" }).waitFor();
 
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.goto(app + "/referee");
@@ -510,4 +526,419 @@ async function clubRegression() {
   await page.waitForURL(app + "/");
   await context.close();
   console.log("PASS: registration with Cyrillic, RSVP going/maybe/cancel, signed-in home, profile, Skill and sign-out.");
+}
+
+async function acceptance(baseline) {
+  const prefix = baseline ? "before" : "after";
+  const context = await browser.newContext({ viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true });
+  await context.addInitScript(() => {
+    // Freeze the synthetic draw for matched screenshots. IDs and recovery tokens still use normal crypto.
+    const getRandomValues = crypto.getRandomValues.bind(crypto);
+    let sample = 20261124;
+    crypto.getRandomValues = (array) => {
+      if (!(array instanceof Uint32Array) || array.length !== 1) return getRandomValues(array);
+      sample = (Math.imul(1664525, sample) + 1013904223) >>> 0;
+      array[0] = sample;
+      return array;
+    };
+  });
+  const page = await context.newPage();
+  await page.goto(app + "/referee");
+  await start(page, false, false);
+  await page.clock.install();
+  await click(page, "Начать речь");
+  await waitStep(page, "speech");
+  await page.waitForFunction(() => document.querySelector("[data-timer]")?.textContent === "01:00");
+  await seat(page, 4).click();
+  for (let n = 1; n <= 3; n++) {
+    await sanction(page, 3);
+    if (!baseline) {
+      const announcement = ["Первый фол.", "Второй фол.", "Третий фол."][n - 1];
+      await sameText(page.locator("[data-discipline-notice] strong"), new RegExp("№3.*" + announcement));
+      await disciplineCount(page, 3, n, 0);
+    }
+  }
+  const time = page.locator("[data-timer]");
+  const clockPanel = time.locator("xpath=../..");
+  const to = async (elapsed) => {
+    const diff = await page.evaluate((target) => {
+      const id = JSON.parse(localStorage["mafia.guided.active"]);
+      const draft = JSON.parse(localStorage["mafia.guided.draft." + id]).draft;
+      const event = draft.events.findLast(({ action }) => action.type === "speechStart");
+      const saved = JSON.parse(localStorage["mafia.guided.clock." + id + "." + event.id]);
+      return target - (saved.elapsed + Date.now() - saved.wall);
+    }, elapsed);
+    assert(diff > 0, "The simulated clock already passed the requested boundary");
+    await page.clock.fastForward(diff);
+  };
+  await to(49_150);
+  await sameText(time, "00:11");
+  const normal = await clockPanel.evaluate((el) => getComputedStyle(el).backgroundColor);
+  if (!baseline) assert.equal(await clockPanel.getAttribute("data-timer-state"), "normal");
+  await page.clock.fastForward(1000);
+  await sameText(time, "00:10");
+  if (!baseline) {
+    await sameText(page.locator(".ref-time-warning"), "Последние 10 секунд");
+    assert.equal(await clockPanel.getAttribute("data-timer-state"), "warning");
+    assert.notEqual(await clockPanel.evaluate((el) => getComputedStyle(el).backgroundColor), normal);
+    await checkContrast(time, clockPanel);
+    await order(page, "[data-nominations]", [4]);
+    await page.locator(".ref-seat.speaking[data-seat='1']").waitFor();
+    await sameText(page.locator(".ref-following"), /Следующий · №2/);
+    await page.locator("[data-seat='3'] .ref-seat-debt").waitFor();
+  }
+  await page.evaluate(() => document.fonts.ready);
+  await shot(page, prefix + "-speech-ipad");
+  if (!baseline) {
+    await click(page, "Пауза");
+    await page.clock.fastForward(4000);
+    await sameText(time, "00:10");
+    await click(page, "Продолжить");
+    await page.clock.fastForward(9000);
+    await sameText(time, "00:01");
+    await page.clock.fastForward(1000);
+    await sameText(time, "00:00");
+    await sameText(page.locator(".ref-time-warning"), "Время вышло");
+    assert.equal(await clockPanel.getAttribute("data-timer-state"), "expired");
+    assert.notEqual(await clockPanel.evaluate((el) => getComputedStyle(el).backgroundColor), normal);
+    await waitStep(page, "speech");
+    await disciplineCount(page, 1, 0, 0);
+    await btn(page.locator("[data-discipline-notice]"), "Отменить действие").click();
+    await disciplineCount(page, 3, 2, 0);
+    await undoRedo(page, "Повторить действие");
+    await disciplineCount(page, 3, 3, 0);
+    await page.reload();
+    await waitStep(page, "speech");
+    await sameText(time, "00:00");
+    await page.getByText("Проверьте остаток после восстановления", { exact: true }).waitFor();
+    await order(page, "[data-nominations]", [4]);
+    await disciplineCount(page, 3, 3, 0);
+  }
+  await click(page, "Закончить речь");
+  await click(page, "Начать речь");
+  await seat(page, 2).click();
+  await click(page, "Закончить речь");
+  if (!baseline) {
+    await sameText(page.locator("[data-speech-debt]"), "Третий фол · 10 секунд только на выставление");
+    await order(page, "[data-nominations]", [4, 2]);
+    await shot(page, "after-debt-ipad");
+  }
+  await click(page, "Начать выставление");
+  await seat(page, 9).click();
+  if (!baseline) {
+    await sameText(time, "00:10");
+    await page.clock.fastForward(4000);
+    await sameText(time, "00:06");
+    assert.equal(await clockPanel.getAttribute("data-timer-state"), "normal");
+    await page.clock.fastForward(1000);
+    await sameText(time, "00:05");
+    await sameText(page.locator(".ref-time-warning"), "Последние 5 секунд");
+    await order(page, "[data-nominations]", [4, 2, 9]);
+  }
+  await click(page, "Закончить речь");
+  await speeches(page);
+  await click(page, "Начать подсчёт");
+  await click(page, "0");
+  if (!baseline) {
+    await order(page, "[data-vote-order]", [4, 2, 9]);
+    await sameText(page.locator("[data-vote-order] [data-vote-count]").first(), "0");
+    await sameText(page.locator("[data-vote-order] li[aria-current] [data-vote-count]"), "Не записано");
+    await page.getByText("Осталось голосов 10", { exact: true }).waitFor();
+    await shot(page, "after-vote-ipad");
+    await undoRedo(page, "Отменить действие");
+    await sameText(page.locator("[data-vote-order] [data-vote-count]").first(), "Не записано");
+    await undoRedo(page, "Повторить действие");
+    await sameText(page.locator("[data-vote-order] [data-vote-count]").first(), "0");
+  }
+  await ballot(page, [5, 5]);
+  await waitStep(page, "defense");
+  if (!baseline) {
+    await order(page, "[data-nominations]", [4, 2, 9]);
+    await order(page, "[data-vote-order]", [2, 9]);
+  }
+  await click(page, "Завершить этап");
+  await click(page, "Завершить этап");
+  if (!baseline) {
+    await page.locator("[data-vote-stage='2']").waitFor();
+    await order(page, "[data-vote-order]", [2, 9]);
+    await sanction(page, 6, "technical");
+    await sameText(page.locator("[data-discipline-notice] strong"), /Первое техническое предупреждение/);
+    await disciplineCount(page, 6, 0, 1);
+    await order(page, "[data-vote-order]", [2, 9]);
+  }
+  await ballot(page, [5, 5]);
+  await click(page, "0");
+  await click(page, "Подтвердить голосование");
+  await click(page, "Объявить итог дня");
+  await click(page, "Начать ночь");
+  await seat(page, 9).click();
+  await click(page, "Подтвердить цель");
+  if (!baseline) {
+    await click(page, "Открыть действие");
+    await page.keyboard.press("Tab");
+    const focusRing = await dialog(page).locator(":focus-visible").evaluate((el) => {
+      const { outlineStyle, outlineWidth } = getComputedStyle(el);
+      return { outlineStyle, outlineWidth };
+    });
+    assert.equal(focusRing.outlineStyle, "solid");
+    assert(parseFloat(focusRing.outlineWidth) >= 2);
+    await seat(dialog(page), 7).click();
+    await sameText(dialog(page).locator(".ref-answer span"), "Шериф");
+    for (const n of [1, 8, 9]) {
+      await seat(dialog(page), n).click();
+      await sameText(dialog(page).locator(".ref-answer span"), "Не шериф");
+    }
+    assert(await seat(dialog(page), 10).isDisabled());
+    await page.keyboard.press("Escape");
+    await dialog(page).waitFor({ state: "detached" });
+    assert(await btn(page, "Открыть действие").evaluate((el) => el === document.activeElement));
+  }
+  await check(page, 7);
+  await click(page, "Открыть действие");
+  if (!baseline) {
+    for (const [n, word] of [[1, "Красный"], [8, "Чёрный"], [10, "Чёрный"]]) {
+      await seat(dialog(page), n).click();
+      await sameText(dialog(page).locator(".ref-answer span"), word);
+    }
+    assert(await seat(dialog(page), 7).isDisabled());
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await dialog(page).waitFor({ state: "detached" });
+    assert(!await page.getByText(/Красный|Чёрный|Мирный|Шериф|Победа/).count());
+    await click(page, "Открыть действие");
+  }
+  await seat(dialog(page), 9).click(); // Pending shot remains a legal target until dawn.
+  if (!baseline) await sameText(dialog(page).locator(".ref-answer span"), "Чёрный");
+  await shot(page, prefix + "-sheriff-ipad");
+  await btn(dialog(page), "Подтвердить показанный ответ").click();
+  if (!baseline) {
+    await click(page, "Ещё");
+    await btn(dialog(page), "Исправить карты двух мест").click();
+    await seat(dialog(page), 1).click();
+    await seat(dialog(page), 9).click();
+    await dialog(page).getByLabel("Причина").fill("Синтетическое уточнение роли");
+    await btn(dialog(page), "Сохранить исправление").click();
+    await click(page, "Ещё");
+    await btn(dialog(page), "Журнал").click();
+    await dialog(page).getByText("№9 · Чёрный", { exact: true }).waitFor();
+    assert(!await dialog(page).getByText(/Победа/).count());
+    await page.keyboard.press("Escape");
+    await click(page, "Подвести итог ночи");
+    await waitStep(page, "best");
+    for (const n of [1, 8, 10]) await seat(page, n).click();
+    await click(page, "Подтвердить три места");
+    await click(page, "Объявить утро");
+    await waitStep(page, "last");
+    await click(page, "Фол");
+    assert(await seat(dialog(page), 9).isDisabled(), "An eliminated speaker cannot be sanctioned");
+    await btn(dialog(page), "×").click();
+    await sanction(page, 6, "technical");
+    await page.getByText("Следующее голосование отменено", { exact: true }).waitFor();
+    await waitStep(page, "last");
+    await sameText(page.locator(".ref-arena [data-seat='9'] .ref-seat-exit"), "Выбыл");
+  }
+  await context.close();
+  await catalogAcceptance(baseline);
+  if (!baseline) await shortAcceptance();
+  console.log(baseline ? "Captured matched baseline states." : "PASS: acceptance DOM, layout, localization, timers, discipline, votes, privacy and catalog.");
+}
+
+async function sanction(page, n, kind = "ordinary") {
+  await click(page, "Фол");
+  const sheet = dialog(page);
+  await seat(sheet, n).click();
+  if (kind === "ordinary") await btn(sheet, "Обычный фол").click();
+  else {
+    const label = kind === "technical" ? "Техническое предупреждение" : "Удалить";
+    await btn(sheet, label).click();
+    await sheet.getByLabel("Причина").fill("Синтетическое нарушение, проверка интерфейса");
+    await btn(sheet, label).last().click();
+  }
+  await sheet.waitFor({ state: "detached" });
+}
+
+async function undoRedo(page, action) {
+  await click(page, "Ещё");
+  await btn(dialog(page), action).click();
+  await dialog(page).waitFor({ state: "detached" });
+}
+
+async function sameText(locator, expected) {
+  await locator.waitFor();
+  if (expected instanceof RegExp) assert.match((await locator.textContent()).trim(), expected);
+  else await locator.getByText(expected, { exact: true }).or(locator.filter({ hasText: new RegExp("^" + expected + "$") })).first().waitFor();
+}
+
+async function order(page, list, numbers) {
+  const items = page.locator(list + " li");
+  await items.first().waitFor();
+  assert.deepEqual(await items.evaluateAll((nodes) => nodes.map((node) => Number(node.dataset.candidate))), numbers);
+}
+
+async function disciplineCount(page, n, fouls, technical) {
+  const place = page.locator(".ref-arena [data-seat='" + n + "']");
+  await place.locator("[data-fouls='" + fouls + "']").waitFor();
+  await place.locator("[data-technical='" + technical + "']").waitFor();
+  assert((await place.getAttribute("aria-label")).includes(fouls + "/4"));
+  assert((await place.getAttribute("aria-label")).includes(technical + "/2"));
+}
+
+async function checkContrast(text, background) {
+  const luminance = (color) => color.match(/\d+/g).slice(0, 3).map((n) => Number(n) / 255)
+    .map((n) => n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, n, channel) => sum + n * [0.2126, 0.7152, 0.0722][channel], 0);
+  const a = luminance(await text.evaluate((el) => getComputedStyle(el).color));
+  const b = luminance(await background.evaluate((el) => getComputedStyle(el).backgroundColor));
+  assert((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= 4.5);
+}
+
+async function catalogAcceptance(baseline) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const catalog = await (await page.request.get(app + "/api/referee/catalog")).json();
+  assert(catalog.evenings.length > 0, "QA requires a planned event");
+  assert(catalog.evenings.every((item) => !/^(STALE|CANCELLED)/.test(item.place)));
+  assert(!JSON.stringify(catalog).includes("PRIVATE SYNTHETIC ORGANIZER NOTE"));
+  const empty = { ...catalog, evenings: [] };
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let mode = "wait";
+  await context.route("**/api/referee/catalog", async (route) => {
+    if (mode === "wait") await gate;
+    return mode === "fail" ? route.fulfill({ status: 503, json: { error: "unavailable" } })
+      : mode === "back" ? route.continue() : route.fulfill({ json: empty });
+  });
+  await page.goto(app + "/referee", { waitUntil: "domcontentloaded" });
+  if (!baseline) await page.getByRole("heading", { name: "Ищем игровые вечера" }).waitFor();
+  release();
+  await page.getByText(/^Нет доступного вечера/).waitFor();
+  await page.evaluate(() => document.fonts.ready);
+  await shot(page, baseline ? "before-empty-phone" : "after-empty-phone");
+  if (!baseline) {
+    const shell = page.locator(".ref-shell");
+    assert.equal(await shell.getByRole("link", { name: "Игры", exact: true }).getAttribute("href"), "/evenings");
+    assert.equal(await shell.getByRole("link", { name: "Mafia League", exact: true }).getAttribute("href"), "/");
+    assert.equal(await shell.getByRole("link", { name: "Новый вечер" }).count(), 0);
+    await btn(shell, "Восстановить черновик").click();
+    await dialog(page).getByLabel("JSON").waitFor();
+    await page.keyboard.press("Escape");
+    mode = "fail";
+    await click(page, "Обновить список");
+    await page.getByRole("heading", { name: "Не удалось загрузить вечера" }).waitFor();
+    await page.evaluate(() => localStorage.removeItem("mafia.guided.catalog"));
+    await context.setOffline(true);
+    await page.getByRole("heading", { name: "Список вечеров недоступен без сети" }).waitFor();
+    mode = "back";
+    await context.setOffline(false);
+    await page.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
+    await context.setOffline(true);
+    await page.getByText(/Список вечеров сохранён/).waitFor();
+    await page.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
+    await context.setOffline(false);
+    mode = "empty";
+
+    const admin = await login(context, adminEmail);
+    await admin.goto(app + "/referee");
+    await admin.locator(".ref-entry").getByRole("link", { name: "Новый вечер" }).waitFor();
+    const ordinary = await login(context, playerEmail);
+    await ordinary.goto(app + "/referee");
+    await ordinary.getByRole("heading", { name: "Нет доступного вечера" }).waitFor();
+    assert.equal(await ordinary.locator(".ref-entry a[href='/admin/evenings']").count(), 0);
+  }
+  await context.close();
+}
+
+async function shortAcceptance() {
+  const context = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  await page.goto(app + "/referee");
+  await start(page, true, false, true);
+  await context.addCookies([{ name: "mafia-locale", value: "uk", url: app }]);
+  await page.reload();
+  await waitStep(page, "donCheck");
+  await page.clock.install();
+  await click(page, "Відкрити дію");
+  await sameText(page.locator("[data-timer]"), "00:20");
+  await page.clock.fastForward(14_000);
+  await sameText(page.locator("[data-timer]"), "00:06");
+  assert.equal(await page.locator(".ref-time").getAttribute("data-timer-state"), "normal");
+  await page.clock.fastForward(1000);
+  await sameText(page.locator(".ref-time-warning"), "Останні 5 секунд");
+  await seat(dialog(page), 6).click();
+  await sameText(dialog(page).locator(".ref-answer span"), "Шериф");
+  await seat(dialog(page), 1).click();
+  await sameText(dialog(page).locator(".ref-answer span"), "Не шериф");
+  await btn(dialog(page), "Не встановлено").click();
+  await click(page, "Відкрити дію");
+  await seat(dialog(page), 1).click();
+  await sameText(dialog(page).locator(".ref-answer span"), "Червоний");
+  await seat(dialog(page), 9).click();
+  await sameText(dialog(page).locator(".ref-answer span"), "Чорний");
+  await checkSeats(page, 9, dialog(page));
+  await shot(page, "after-short9-uk-n0-phone");
+  await btn(dialog(page), "Підтвердити показану відповідь").click();
+  await click(page, "Завершити етап");
+  await click(page, "Оголосити ранок");
+  await context.addCookies([{ name: "mafia-locale", value: "ru", url: app }]);
+  await page.reload();
+  await waitStep(page, "speechReady");
+  for (let i = 0; i < 3; i++) await sanction(page, 2);
+  await sanction(page, 8, "technical");
+  await disciplineCount(page, 8, 0, 1);
+  await sanction(page, 8, "technical");
+  await disciplineCount(page, 8, 0, 2);
+  await sameText(page.locator(".ref-arena [data-seat='8'] .ref-seat-exit"), "Удалён");
+  await page.getByText("Голосование отменено", { exact: true }).waitFor();
+  await page.getByText(/Удаление без последнего слова/).waitFor();
+  for (const n of [7, 4, 5, 6]) await sanction(page, n, "remove");
+  for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }, { width: 768, height: 1024 },
+    { width: 820, height: 1180 }, { width: 1180, height: 820 }, { width: 1440, height: 1000 }]) {
+    await page.setViewportSize(viewport);
+    await fit(page, "Начать речь");
+    await fit(page, "Фол");
+    await checkSeats(page, 9);
+  }
+  await click(page, "Начать речь");
+  await click(page, "Закончить речь");
+  await sameText(page.locator("[data-speech-debt]"), "Третий фол · 30 секунд на речь");
+  await click(page, "Начать речь");
+  await sameText(page.locator("[data-timer]"), "00:30");
+  await shot(page, "after-short9-discipline-desktop");
+  await click(page, "Закончить речь");
+  await click(page, "Начать речь");
+  await click(page, "Закончить речь");
+  await click(page, "Начать речь");
+  await click(page, "Закончить речь");
+  await click(page, "Объявить итог дня");
+  await click(page, "Начать ночь");
+  await waitStep(page, "donCheck");
+  assert.equal(await btn(page, "Промах").count(), 0);
+  await check(page);
+  await check(page);
+  await click(page, "Подвести итог ночи");
+  await click(page, "Объявить утро");
+  assert(!await page.locator("[data-speech-debt]").count(), "The served debt cannot be consumed twice");
+  await click(page, "Начать речь");
+  await sameText(page.locator("[data-timer]"), "01:00");
+  await context.close();
+}
+
+async function checkSeats(page, expected, root = page.locator(".ref-arena")) {
+  const geometry = await root.locator(".ref-board").evaluate((board) => {
+    const rect = (node) => {
+      const { left, right, top, bottom, width, height } = node.getBoundingClientRect();
+      return { left, right, top, bottom, width, height };
+    };
+    return {
+      scroll: document.documentElement.scrollWidth, width: innerWidth,
+      seats: Array.from(board.querySelectorAll(".ref-seat"), rect),
+      host: rect(board.querySelector(".ref-host")),
+    };
+  });
+  assert.equal(geometry.seats.length, expected);
+  assert(geometry.scroll <= geometry.width, "The layout overflows horizontally");
+  assert(geometry.seats.every((r) => r.width >= 44 && r.height >= 44 && r.left >= 0 && r.right <= geometry.width));
+  for (const [i, a] of geometry.seats.entries()) for (const b of [...geometry.seats.slice(i + 1), geometry.host]) {
+    assert(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top,
+      "Physical seat targets overlap at " + geometry.width + "px");
+  }
 }

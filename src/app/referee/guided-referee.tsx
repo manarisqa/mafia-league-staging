@@ -1,17 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { LanguageSwitch, useTranslation } from "@/components/locale-provider";
 import { fullDateTime } from "@/lib/format";
-import { emptyCatalog, type Action, type Catalog, type Draft } from "@/lib/referee/guided/protocol";
+import { emptyCatalog, inEveningWindow, type Action, type Catalog, type Draft } from "@/lib/referee/guided/protocol";
 import { append, bestHits, replay, validate } from "@/lib/referee/guided/reducer";
 import { derive, type Draft as OldDraft } from "@/lib/referee/engine";
 import { canonical } from "@/lib/league/legacy/referee-protocol";
 import { Live, PrivateRoster, RoleCorrection, Sheet, UndoRedo } from "./live";
 import { Setup } from "./setup";
 import { activeKey, catalogKey, cloud, download, get, importFile, list, newLocal, read, restoreWithCode, save, write, type LocalDraft } from "./local";
-import { translate, type Translate, type Word } from "./words";
+import { checkLabel, translate, type Translate, type Word } from "./words";
 
 type Panel = "more" | "restore" | "code" | "correction" | "roles" | "journal" | "note";
 const errors: Record<string, Word> = {
@@ -19,7 +19,15 @@ const errors: Record<string, Word> = {
   rate: "rate", round: "roundConflict", localConflict: "localConflict", QuotaExceededError: "storage", SecurityError: "storage",
 };
 
-export function GuidedReferee() {
+type CatalogStatus = "loading" | "ready" | "offline" | "failed";
+
+function isCatalog(value: unknown): value is Catalog {
+  if (!value || typeof value !== "object") return false;
+  return "evenings" in value && Array.isArray(value.evenings) && "players" in value && Array.isArray(value.players)
+    && "history" in value && Array.isArray(value.history);
+}
+
+export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) {
   const { locale: siteLocale } = useTranslation();
   const [offlineLocale, setOfflineLocale] = useState<"ru" | "uk" | null>(null);
   const locale = offlineLocale ?? siteLocale;
@@ -27,7 +35,8 @@ export function GuidedReferee() {
   const [ready, setReady] = useState(false);
   const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
   const [online, setOnline] = useState(true);
-  const [catalogError, setCatalogError] = useState(false);
+  const [catalogStatus, setCatalogStatus] = useState<CatalogStatus>("loading");
+  const catalogRequest = useRef<AbortController | null>(null);
   const [current, setCurrent] = useState<LocalDraft | null>(null);
   const [next, setNext] = useState<Draft | null>(null);
   const [sessions, setSessions] = useState<LocalDraft[]>([]);
@@ -39,21 +48,41 @@ export function GuidedReferee() {
   const pending = useRef(false);
   const [note, setNote] = useState("");
   const [restore, setRestore] = useState("");
-  const state = current ? replay(current.draft).state : null;
+  const game = current ? replay(current.draft) : null;
+  const state = game?.state;
+  const latest = current?.draft.events.find((event) => event.id === game?.undo);
   const evening = catalog.evenings.find((e) => e.id === current?.draft.evening);
   const protectedStatus = current && !["draft", "clarify"].includes(current.status);
   const draftStatus = current?.outbox ? "outbox" : current?.status !== "draft" ? current?.status :
     current.synced === current.draft.events.length ? "cloud" : "local";
 
   const pullCatalog = useCallback(async () => {
+    catalogRequest.current?.abort();
+    if (!navigator.onLine) {
+      const cached = read<unknown>(catalogKey);
+      const now = Date.now();
+      setCatalog(isCatalog(cached)
+        ? { ...cached, evenings: cached.evenings.filter((item) => inEveningWindow(item?.startsAt, now)) } : emptyCatalog);
+      setCatalogStatus("offline");
+      return;
+    }
+    const request = new AbortController();
+    catalogRequest.current = request;
+    setCatalogStatus((prior) => prior === "ready" ? prior : "loading");
+    const timeout = setTimeout(() => request.abort("timeout"), 12000);
     try {
-      const response = await fetch("/api/referee/catalog", { cache: "no-store", credentials: "same-origin" });
+      const response = await fetch("/api/referee/catalog", {
+        cache: "no-store", credentials: "same-origin", signal: request.signal,
+      });
       if (!response.ok) throw new Error();
-      const content = await response.json() as Catalog;
+      const content: unknown = await response.json();
+      if (!isCatalog(content)) throw new Error();
       setCatalog(content);
-      setCatalogError(false);
+      setCatalogStatus("ready");
       try { save(catalogKey, content); } catch { /* Optional cache. */ }
-    } catch { setCatalogError(true); }
+    } catch {
+      if (catalogRequest.current === request && (!request.signal.aborted || request.signal.reason === "timeout")) setCatalogStatus("failed");
+    } finally { clearTimeout(timeout); }
   }, []);
 
   useEffect(() => {
@@ -62,12 +91,10 @@ export function GuidedReferee() {
       if (navigator.onLine) {
         setOfflineLocale(null);
         try { save("mafia.guided.locale", siteLocale); } catch { /* Optional cache. */ }
-        void pullCatalog();
       } else setOfflineLocale(read<"ru" | "uk">("mafia.guided.locale"));
+      void pullCatalog();
     };
     const hydrate = requestAnimationFrame(() => {
-      const cached = read<Catalog>(catalogKey);
-      if (cached) setCatalog(cached);
       const id = read<string>(activeKey);
       if (id) setCurrent(get(id));
       setSessions(list());
@@ -87,6 +114,7 @@ export function GuidedReferee() {
     }
     return () => {
       cancelAnimationFrame(hydrate);
+      catalogRequest.current?.abort();
       window.removeEventListener("online", updateOnline);
       window.removeEventListener("offline", updateOnline);
       window.removeEventListener("storage", onStorage);
@@ -233,7 +261,7 @@ export function GuidedReferee() {
 
   return <section className="ref-shell" data-referee>
     <div className="ref-topline">
-      <Link href="/" aria-label="Mafia League" className="ref-brand">MAFIA <i>LEAGUE</i></Link>
+      <Link href="/" aria-label="Mafia League" className="ref-brand"><i aria-hidden="true" /> <span>MAFIA LEAGUE</span></Link>
       <div className="ref-context">
         <h1>{t("hostGame")}</h1>
         {current && <span>{evening?.place ?? t("evening")} · {t("round")} {current.draft.round} · {t(current.draft.format)}</span>}
@@ -279,13 +307,17 @@ export function GuidedReferee() {
           </div>
         </div> :
         <Live key={current.draft.id}
-          draft={current.draft} state={state} t={t} act={act} tools={() => setPanel("more")} disabled={busy || !!protectedStatus} />
+          draft={current.draft} state={state} t={t} act={act} latest={latest}
+          tools={() => setPanel("more")} disabled={busy || !!protectedStatus} />
       : <>
-          <Setup key={next?.id ?? "new"} catalog={catalog} locale={locale} t={t} last={next}
-            localRounds={sessions.filter((item) => !!replay(item.draft).state.result && item.status !== "rejected").map((item) => item.draft).reverse()}
-            onStart={init} />
-          <div className="ref-section">
-            {catalogError && <p>{t("unavailable")}</p>}
+          {catalog.evenings.length > 0 && (catalogStatus === "ready" || catalogStatus === "offline") ? <>
+            {catalogStatus === "offline" && <p className="ref-notice" role="status">{t("catalogCached")}</p>}
+            <Setup key={(next?.id ?? "new") + ":" + catalog.evenings.map((item) => item.id).join(",")}
+              catalog={catalog} locale={locale} t={t} last={next}
+              localRounds={sessions.filter((item) => !!replay(item.draft).state.result && item.status !== "rejected").map((item) => item.draft).reverse()}
+              onStart={init} />
+          </> : <CatalogEntry status={catalogStatus} t={t} retry={pullCatalog} adminEvenings={adminEvenings} />}
+          <div className="ref-section ref-drafts">
             {sessions.length > 0 && <><h3>{t("savedDrafts")}</h3>
               <div className="ref-roster">{sessions.map((record) => <button type="button" key={record.draft.id} onClick={() => selectDraft(record)}>
                 {t(record.draft.format)} · {t("round")} {record.draft.round} · {fullDateTime(record.draft.startedAt, locale)} · {t(record.outbox ? "outbox" : record.status === "draft" ? "local" : record.status)}
@@ -342,6 +374,24 @@ export function GuidedReferee() {
   </section>;
 }
 
+function CatalogEntry({ status, t, retry, adminEvenings }: {
+  status: CatalogStatus; t: Translate; retry: () => void; adminEvenings?: ReactNode;
+}) {
+  const title = { loading: "catalogLoading", ready: "noEvening", offline: "catalogOffline", failed: "catalogFailed" } as const;
+  const help = { ready: "noEveningHelp", offline: "catalogOfflineHelp", failed: "catalogFailedHelp" } as const;
+  return <div className="ref-banner ref-entry" data-catalog-state={status} aria-busy={status === "loading"}>
+    <div role={status === "failed" ? "alert" : "status"}>
+      <h2>{t(title[status])}</h2>
+      {status !== "loading" && <p>{t(help[status])}</p>}
+    </div>
+    <div className="ref-actions">
+      {status !== "loading" && <button type="button" className="primary" onClick={retry}>{t("catalogRetry")}</button>}
+      <Link className="ref-link" href="/evenings">{t("games")}</Link>
+      {status === "ready" && adminEvenings}
+    </div>
+  </div>;
+}
+
 const journalLabels: Record<Action["type"], Word> = {
   role: "roles", roleSwap: "roleSwap", advance: "next", speechStart: "speech", nominate: "nominate",
   discipline: "discipline", count: "count", confirmVote: "confirmVote", joint: "joint", shot: "shot",
@@ -356,7 +406,7 @@ export function Journal({ draft, locale, t }: { draft: Draft; locale: "ru" | "uk
     {"seat" in action && <small>№{action.seat}</small>}
     {"seconds" in action && action.seconds !== null && <small>{action.seconds} с</small>}
     {action.type === "check" && <small>{action.target ? "№" + action.target + " · " : ""}
-      {t(action.answer ?? (action.mode === "observed" ? "nightWindow" : action.mode))}</small>}
+      {t(action.answer ? checkLabel(action.answer) : action.mode === "observed" ? "nightWindow" : action.mode)}</small>}
     {action.type === "shot" && <small>№{action.target}</small>}
     {action.type === "shotNone" && <small>{t(action.mode)}</small>}
     {action.type === "count" && <small>{action.value}</small>}

@@ -31,13 +31,17 @@ export function Setup({ catalog, locale, t, last, localRounds, onStart }: {
   onStart: (draft: Draft) => Promise<boolean>;
 }) {
   const key = "mafia.guided.setup." + (last?.id ?? "initial");
-  const [saved] = useState(() => restoreSetup(key));
-  const [eveningId, setEvening] = useState(saved?.eveningId ?? last?.evening ?? "");
+  const [saved] = useState(() => {
+    const cached = restoreSetup(key);
+    return catalog.evenings.some((item) => item.id === cached?.eveningId) ? cached : null;
+  });
+  const [continuing] = useState(last && catalog.evenings.some((item) => item.id === last.evening) ? last : null);
+  const [eveningId, setEvening] = useState(saved?.eveningId ?? continuing?.evening ?? catalog.evenings[0]?.id ?? "");
   const [format, setFormat] = useState<Format>(saved?.format ?? last?.format ?? "classic10");
-  const [hostId, setHost] = useState<string | null>(saved?.hostId ?? last?.host.id ?? null);
-  const [customHost, setCustomHost] = useState(saved?.customHost ?? last?.host.name ?? "");
-  const [hostMode, setHostMode] = useState(saved?.hostMode ?? !!last?.host.id);
-  const [attendance, setAttendance] = useState<AvailabilityRow[]>(saved?.attendance ?? last?.organization.attendance ?? []);
+  const [hostId, setHost] = useState<string | null>(saved?.hostId ?? continuing?.host.id ?? null);
+  const [customHost, setCustomHost] = useState(saved?.customHost ?? continuing?.host.name ?? "");
+  const [hostMode, setHostMode] = useState(saved?.hostMode ?? !!continuing?.host.id);
+  const [attendance, setAttendance] = useState<AvailabilityRow[]>(saved?.attendance ?? continuing?.organization.attendance ?? []);
   const [search, setSearch] = useState("");
   const [screen, setScreen] = useState<"attendance" | "roster" | "seats">(saved?.screen ?? "attendance");
   const [proposal, setProposal] = useState<string[]>(saved?.proposal ?? []);
@@ -54,7 +58,7 @@ export function Setup({ catalog, locale, t, last, localRounds, onStart }: {
   }, [key, eveningId, format, hostId, customHost, hostMode, attendance, screen, proposal, roster, reason, seatDraft, abandoned]);
   const [take, setTake] = useState<number[]>([]);
   const [swapReason, setSwapReason] = useState("");
-  const evening = catalog.evenings.find((e) => e.id === eveningId) ?? catalog.evenings[0];
+  const evening = catalog.evenings.find((e) => e.id === eveningId);
   const size = seatCount(format);
   const status = useMemo(() => new Map(attendance.map((p) => [p.id, p.status])), [attendance]);
   const host = hostMode ? hostId ?? evening?.host ?? null : null;
@@ -74,7 +78,7 @@ export function Setup({ catalog, locale, t, last, localRounds, onStart }: {
     const prior = roundHistory.map((d) => ({ attendance: d.organization.attendance, host: d.host.id, players: d.players.map((p) => p.id) }));
     const result = queue(catalog.players, attendance, host, format, prior);
     if (result.length < size && candidates.length < size) { setError(true); return; }
-    const reused = last?.players.map((p) => p.id).filter((id) => candidates.some((p) => p.id === id)) ?? [];
+    const reused = continuing?.players.map((p) => p.id).filter((id) => candidates.some((p) => p.id === id)) ?? [];
     setProposal(result);
     setRoster(reuse ? reused.slice(0, size) : result);
     setReason(reuse ? t("sameRoster") : "");
@@ -123,7 +127,7 @@ export function Setup({ catalog, locale, t, last, localRounds, onStart }: {
     setSaving(false);
   }
 
-  if (!evening) return <p className="ref-notice">{t("noEvening")}</p>;
+  if (!evening) return null;
 
   return (
     <div className="ref-setup">
@@ -185,7 +189,7 @@ export function Setup({ catalog, locale, t, last, localRounds, onStart }: {
           {error && <p role="alert" className="ref-notice">{t("tooFew")}</p>}
           <div className="ref-actions">
             <button type="button" className="primary" onClick={() => propose()}>{t("choose")}</button>
-            {last && <button type="button" onClick={() => propose(true)}>{t("sameRoster")}</button>}
+            {continuing?.evening === eveningId && <button type="button" onClick={() => propose(true)}>{t("sameRoster")}</button>}
           </div>
         </>
       )}
