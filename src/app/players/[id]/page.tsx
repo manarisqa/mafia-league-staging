@@ -119,7 +119,7 @@ async function Profile({
         <label className="min-w-0 text-sm text-muted">
           <span className="mb-1 block">{t("Сторона или роль")}</span>
           <select name="role" defaultValue={role} className={control}>
-            <option value="all">{t("Все стороны и роли")}</option>
+            <option value="all">{t("Любая")}</option>
             {insightSides.map((value) => <option key={value} value={value}>{t(WINNER_SHORT[value])}</option>)}
             {insightRoles.map((value) => <option key={value} value={value}>{t(ROLE_LABEL[value])}</option>)}
           </select>
