@@ -15,7 +15,7 @@ const secondaryClass = "min-h-11 rounded-control border border-border px-4 py-2 
 function CheckboxList({ name, options, checked, t }: {
   name: string; options: readonly CommunicationLabel[]; checked: readonly string[]; t: (key: CommunicationLabel) => string;
 }) {
-  return <div className="grid gap-x-4 sm:grid-cols-2">
+  return <div className={name === "day" ? "grid grid-cols-3 gap-x-3 sm:grid-cols-7" : "grid gap-x-4 sm:grid-cols-2"}>
     {options.map((value) => (
       <label key={value} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
         <input type="checkbox" name={name} value={value} defaultChecked={checked.includes(value)} className="size-4 accent-accent" />
@@ -36,7 +36,7 @@ export function NotificationPreferencesForm({ current, locale }: { current: Noti
   const [state, action, pending] = useActionState(saveNotifications, {});
   return <Card title={t("notifications")}>
     <p className="text-sm text-muted">{t("notificationsHelp")}</p>
-    <form key={current?.revision ?? 0} onSubmit={keepFormSubmit(action)} className="mt-4 space-y-4">
+    <form key={current?.revision ?? 0} action={action} onSubmit={keepFormSubmit(action)} className="mt-4 space-y-4">
       <input type="hidden" name="revision" value={current?.revision ?? 0} />
       <fieldset disabled={pending}>
         <legend className="sr-only">{t("notifications")}</legend>
@@ -62,14 +62,14 @@ export function FeedbackForm({ current, locale }: { current: Feedback | null; lo
     || feedbackScore.options.some((name) => current[name] !== null));
   return <Card title={t("feedback")}>
     <p className="text-sm text-muted">{t("feedbackHelp")}</p>
-    <form key={current?.revision ?? 0} onSubmit={keepFormSubmit(action)} className="mt-4 space-y-4">
+    <form key={current?.revision ?? 0} action={action} onSubmit={keepFormSubmit(action)} className="mt-4 space-y-4">
       <input type="hidden" name="revision" value={current?.revision ?? 0} />
       <fieldset disabled={pending} className="grid gap-3 sm:grid-cols-3">
         <legend className="sr-only">{t("feedback")}</legend>
         {feedbackScore.options.map((name) => (
-          <label key={name} className="grid gap-1.5 text-sm">
-            {t(name)}
-            <select name={name} defaultValue={current?.[name] ?? ""} className={inputClass}>
+          <div key={name} className="grid gap-1.5 text-sm">
+            <label htmlFor={`feedback-${name}`}>{t(name)}</label>
+            <select id={`feedback-${name}`} name={name} defaultValue={current?.[name] ?? ""} className={inputClass}>
               <option value="">{t("noScore")}</option>
               <option value="1">1 · {t("lowScore")}</option>
               <option value="2">2</option>
@@ -77,7 +77,7 @@ export function FeedbackForm({ current, locale }: { current: Feedback | null; lo
               <option value="4">4</option>
               <option value="5">5 · {t("highScore")}</option>
             </select>
-          </label>
+          </div>
         ))}
       </fieldset>
       <fieldset disabled={pending}>

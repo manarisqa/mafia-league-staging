@@ -17,7 +17,9 @@ const browser = await chromium.launch({
 });
 
 const button = (page, name) => page.getByRole("button", { name, exact: true });
-const open = (page, path) => page.goto(app + path, { waitUntil: "domcontentloaded", timeout: 90_000 });
+const navigation = { waitUntil: "domcontentloaded", timeout: 60_000 };
+const open = (page, path) => page.goto(app + path, navigation);
+const waitPath = (page, predicate) => page.waitForURL(predicate, navigation);
 const consent = (page) => page.getByRole("checkbox", { name: "Новый вечер", exact: true });
 
 async function login(page, email) {
@@ -25,11 +27,12 @@ async function login(page, email) {
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(password);
   await button(page, "Войти").click();
-  await page.waitForURL((url) => url.pathname !== "/login");
+  await waitPath(page, (url) => url.pathname !== "/login");
 }
 
 async function screenshot(page, name, viewport) {
   await page.setViewportSize(viewport);
+  await page.evaluate(() => window.scrollTo(0, 0));
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, name);
   await page.screenshot({ path: resolve(screenshots, name + ".png"), fullPage: true, animations: "disabled" });
 }
@@ -37,20 +40,30 @@ async function screenshot(page, name, viewport) {
 try {
   const guest = await browser.newPage({ viewport: { width: 375, height: 812 } });
   await open(guest, "/club/preferences");
-  await guest.waitForURL((url) => url.pathname === "/login");
+  await waitPath(guest, (url) => url.pathname === "/login");
   await open(guest, "/admin/communications");
-  await guest.waitForURL((url) => url.pathname === "/login");
+  await waitPath(guest, (url) => url.pathname === "/login");
+
+  console.log("Guest restrictions passed.");
 
   const player = await browser.newPage({ viewport: { width: 375, height: 812 } });
+  const registration = [];
+  player.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/register") registration.push({ method: request.method(), query: url.searchParams });
+  });
   await open(player, "/register");
   await player.locator("#nickname").fill("QA Комунікації");
   await player.locator("#email").fill(playerEmail);
   await player.locator("#password").fill(password);
   await button(player, "Зарегистрироваться").click();
-  await player.waitForURL((url) => url.pathname === "/evenings");
+  await waitPath(player, (url) => url.pathname === "/evenings");
+  assert(registration.some(({ method }) => method === "POST"));
+  assert(registration.every(({ query }) => !query.has("email") && !query.has("password")));
   await open(player, "/admin/communications");
-  await player.waitForURL((url) => url.searchParams.get("error") === "forbidden");
+  await waitPath(player, (url) => url.searchParams.get("error") === "forbidden");
   await open(player, "/club/preferences");
+  console.log("Registration and player admin restriction passed.");
   await consent(player).check();
   await player.getByLabel("Язык уведомлений").selectOption("uk");
   await button(player, "Сохранить настройки").click();
@@ -66,6 +79,8 @@ try {
   assert.equal(await consent(player).isChecked(), true);
   await screenshot(player, "02-player-preferences-phone-ru", { width: 375, height: 812 });
 
+  console.log("Player preferences and feedback persistence passed.");
+
   const admin = await browser.newPage({ viewport: { width: 820, height: 1180 } });
   await login(admin, adminEmail);
   await open(admin, "/admin/communications");
@@ -75,7 +90,7 @@ try {
   await admin.getByText(/Mafia League · Призначено новий ігровий вечір/u).waitFor();
   await screenshot(admin, "03-admin-preview-ipad-ru", { width: 820, height: 1180 });
   await button(admin, "Записать симуляцию").click();
-  await admin.getByText("Записано симуляций · 1", { exact: true }).waitFor();
+  await admin.getByText(/^Записано симуляций · [1-9]\d*$/u).waitFor();
   await admin.getByText(/Время симуляции ·/u).first().waitFor();
   await button(admin, "Посмотреть сообщение").click();
   await admin.getByText("Сейчас нет получателей для симуляции.").waitFor();

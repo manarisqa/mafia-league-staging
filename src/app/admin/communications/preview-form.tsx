@@ -45,7 +45,7 @@ export function PreviewForm({ locale, evenings }: { locale: Locale; evenings: { 
     {preview && <div className="space-y-4 rounded-panel border border-border bg-elevated p-4" aria-live="polite">
       <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-4">
         {(Object.keys(countLabels) as (keyof typeof countLabels)[]).map((key) => (
-          <div key={key}><dt className="text-muted">{t(countLabels[key])}</dt><dd className="font-display text-xl tabular-nums">{preview.counts[key]}</dd></div>
+          <div key={key} className="flex flex-col justify-between gap-1"><dt className="text-muted">{t(countLabels[key])}</dt><dd className="font-display text-xl tabular-nums">{preview.counts[key]}</dd></div>
         ))}
       </dl>
       {preview.counts.recipients === 0 && <p className="text-sm text-muted">{t("noRecipients")}</p>}
