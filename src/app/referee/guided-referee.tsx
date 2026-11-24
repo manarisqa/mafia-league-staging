@@ -10,13 +10,18 @@ import { derive, type Draft as OldDraft } from "@/lib/referee/engine";
 import { canonical } from "@/lib/league/legacy/referee-protocol";
 import { Live, PrivateRoster, RoleCorrection, Sheet, UndoRedo } from "./live";
 import { Setup } from "./setup";
-import { activeKey, catalogKey, cloud, download, get, importFile, list, newLocal, read, restoreWithCode, save, write, type LocalDraft } from "./local";
+import {
+  activeKey, catalogKey, clearClocks, cloud, download, get, importFile, isDraftChange, list, newLocal, read,
+  reconcileRestarts, recoverProtected, restartLocal, restoreWithCode, save, slotOf, wasCancelled,
+  withCloudLock, write, type LocalDraft,
+} from "./local";
 import { checkLabel, translate, type Translate, type Word } from "./words";
 
-type Panel = "more" | "restore" | "code" | "correction" | "roles" | "journal" | "note";
+type Panel = "more" | "restore" | "code" | "correction" | "roles" | "journal" | "note" | "restart";
 const errors: Record<string, Word> = {
   invalid: "invalid", invalid_procedure: "invalid", denied: "denied", conflict: "conflict", unavailable: "unavailable",
   rate: "rate", round: "roundConflict", localConflict: "localConflict", QuotaExceededError: "storage", SecurityError: "storage",
+  restartProtected: "restartProtected",
 };
 
 type CatalogStatus = "loading" | "ready" | "offline" | "failed";
@@ -25,6 +30,16 @@ function isCatalog(value: unknown): value is Catalog {
   if (!value || typeof value !== "object") return false;
   return "evenings" in value && Array.isArray(value.evenings) && "players" in value && Array.isArray(value.players)
     && "history" in value && Array.isArray(value.history);
+}
+
+function playedRounds(sessions: LocalDraft[]) {
+  const rounds = new Map<string, Draft>();
+  for (const { draft, status, cancellations } of [...sessions].reverse()) {
+    if (["rejected", "revoked", "archived"].includes(status) || cancellations?.some((entry) => entry.state === "protected")) continue;
+    const result = replay(draft).state.result;
+    if (result && result.outcome !== "cancelled") rounds.set(draft.evening + ":" + draft.round, draft);
+  }
+  return [...rounds.values()].sort((a, b) => a.round - b.round);
 }
 
 export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) {
@@ -53,6 +68,8 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
   const latest = current?.draft.events.find((event) => event.id === game?.undo);
   const evening = catalog.evenings.find((e) => e.id === current?.draft.evening);
   const protectedStatus = current && !["draft", "clarify"].includes(current.status);
+  const restartBlocked = current?.cancellations?.some((entry) => entry.state === "protected");
+  const mayRestart = current?.status === "draft" && !restartBlocked;
   const draftStatus = current?.outbox ? "outbox" : current?.status !== "draft" ? current?.status :
     current.synced === current.draft.events.length ? "cloud" : "local";
 
@@ -85,10 +102,21 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
     } finally { clearTimeout(timeout); }
   }, []);
 
+  const flushRestarts = useCallback((record: LocalDraft) => {
+    if (!record.cancellations?.some((entry) => entry.state === "pending") || !navigator.onLine) return;
+    void withCloudLock(record, (latest) => reconcileRestarts(latest, async (value, serial) => {
+      const saved = await write(value, serial);
+      setCurrent((view) => view?.draft.id === saved.draft.id && view.serial === serial ? saved : view);
+      setSessions(list());
+      return saved;
+    })).catch(() => { /* Local play stays available. An explicit sync also retries the cancellation. */ });
+  }, []);
+
   useEffect(() => {
     const updateOnline = () => {
       setOnline(navigator.onLine);
       if (navigator.onLine) {
+        for (const record of list()) flushRestarts(record);
         setOfflineLocale(null);
         try { save("mafia.guided.locale", siteLocale); } catch { /* Optional cache. */ }
       } else setOfflineLocale(read<"ru" | "uk">("mafia.guided.locale"));
@@ -101,7 +129,7 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
       setReady(true);
       updateOnline();
     });
-    const onStorage = () => setSessions(list());
+    const onStorage = (event: StorageEvent) => { if (isDraftChange(event.key)) setSessions(list()); };
     window.addEventListener("online", updateOnline);
     window.addEventListener("offline", updateOnline);
     window.addEventListener("storage", onStorage);
@@ -119,7 +147,22 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
       window.removeEventListener("offline", updateOnline);
       window.removeEventListener("storage", onStorage);
     };
-  }, [pullCatalog, siteLocale]);
+  }, [flushRestarts, pullCatalog, siteLocale]);
+
+  useEffect(() => {
+    if (!current) return;
+    const followRestart = (event: StorageEvent) => {
+      if (!isDraftChange(event.key)) return;
+      const latest = get(slotOf(current));
+      if (!latest || (latest.draft.id === current.draft.id && latest.status === current.status &&
+        latest.cancellations?.some((entry) => entry.state === "protected") === restartBlocked)) return;
+      setCurrent(latest);
+      setPanel(null);
+      setWarning(null);
+    };
+    window.addEventListener("storage", followRestart);
+    return () => window.removeEventListener("storage", followRestart);
+  }, [current, restartBlocked]);
 
   useEffect(() => {
     const hide = () => {
@@ -179,7 +222,7 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
   }
 
   function selectDraft(record: LocalDraft) {
-    try { save(activeKey, record.draft.id); } catch { setWarning("storage"); }
+    try { save(activeKey, slotOf(record)); } catch { setWarning("storage"); }
     setCurrent(record);
     setPanel(null);
     setLegacy(null);
@@ -190,28 +233,59 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
   async function sync(action: "save" | "submit" | "read" | "revoke", replace = false) {
     if (!current) return;
     await run(async () => {
-      let working = current;
       try {
-        if (action === "submit" && !current.outbox) working = await accept({ ...current, outbox: true }, current.serial);
-        const result = await cloud(action, working);
-        if (result.error) {
-          if (action === "submit" && !["unavailable", "rate"].includes(result.error)) {
-            await accept({ ...working, outbox: false }, working.serial);
+        await withCloudLock(current, async (latest) => {
+          let working = latest;
+          if (action === "submit" && !working.outbox) working = await accept({ ...working, outbox: true }, working.serial);
+          if (action === "save" || action === "submit") working = await reconcileRestarts(working, accept);
+          const result = await cloud(action, working);
+          if (result.error) {
+            if (action === "submit" && !["unavailable", "rate"].includes(result.error)) {
+              await accept({ ...working, outbox: false }, working.serial);
+            }
+            throw new Error(result.error);
           }
-          throw new Error(result.error);
-        }
-        let draft = working.draft;
-        if (action === "read" && result.payload) {
-          const remote = validate(result.payload).draft;
-          if (!replace && canonical(remote) !== canonical(working.draft) &&
-            (working.synced !== working.draft.events.length || result.status === "draft")) {
-            throw new Error("conflict");
+          let draft = working.draft;
+          if (action === "read" && result.payload) {
+            const remote = validate(result.payload).draft;
+            if (!replace && canonical(remote) !== canonical(working.draft) &&
+              (working.synced !== working.draft.events.length || result.status === "draft")) {
+              throw new Error("conflict");
+            }
+            draft = remote;
           }
-          draft = remote;
-        }
-        await accept({ ...working, draft, revision: result.revision, status: result.status,
-          note: result.note ?? null, synced: draft.events.length, outbox: false }, working.serial);
-        setPanel(null);
+          await accept({ ...working, draft, revision: result.revision, status: result.status,
+            note: result.note ?? null, synced: draft.events.length, outbox: false }, working.serial);
+          setPanel(null);
+        });
+      } catch (error) { fail(error, "unavailable"); }
+    });
+  }
+
+  async function restart() {
+    if (!current || !mayRestart) return;
+    const restarted = await run(async () => {
+      try {
+        return await withCloudLock(current, async (latest) => {
+          const saved = await accept(restartLocal(latest), latest.serial);
+          setPanel(null);
+          try { clearClocks(latest.draft.id); } catch { /* The new attempt has its own timer keys. */ }
+          window.scrollTo(0, 0);
+          return saved;
+        });
+      } catch (error) { fail(error); return null; }
+    });
+    if (restarted) flushRestarts(restarted);
+  }
+
+  async function openOriginal() {
+    if (!current) return;
+    await run(async () => {
+      try {
+        await withCloudLock(current, async (latest) => {
+          await accept(await recoverProtected(latest), latest.serial);
+          setPanel(null);
+        });
       } catch (error) { fail(error, "unavailable"); }
     });
   }
@@ -220,9 +294,10 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
     await run(async () => {
       try {
         const value = await restoreWithCode(restore);
+        if (wasCancelled(value.draft.id)) throw new Error("conflict");
         const earlier = get(value.draft.id);
-        if (earlier && earlier.synced !== earlier.draft.events.length) throw new Error("conflict");
-        await accept(value, earlier?.serial ?? null, true);
+        if (earlier && (earlier.draft.id !== value.draft.id || earlier.synced !== earlier.draft.events.length)) throw new Error("conflict");
+        await accept({ ...earlier, ...value }, earlier?.serial ?? null, true);
         setRestore("");
         setPanel(null);
       } catch (error) { fail(error, "unavailable"); }
@@ -235,6 +310,7 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
         const data = await importFile(file);
         if (data.legacy) { setLegacy(data.legacy); setPanel(null); return; }
         const draft = data.draft!;
+        if (wasCancelled(draft.id)) throw new Error("conflict");
         const earlier = get(draft.id);
         if (earlier) {
           if (canonical(earlier.draft) !== canonical(draft)) throw new Error("conflict");
@@ -247,10 +323,10 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
     });
   }
 
-  function nextGame() {
+  function leaveGame(continueEvening = false) {
     if (!current) return;
-    try { save(activeKey, null); } catch { setWarning("storage"); }
-    setNext(current.draft);
+    try { save(activeKey, null); } catch { setWarning("storage"); return; }
+    setNext(continueEvening ? current.draft : null);
     setCurrent(null);
     setPanel(null);
     void pullCatalog();
@@ -274,9 +350,12 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
     </div>
     {warning && <div role="alert" className="ref-notice">
       {t(warning)}{warning === "localConflict" && current && <button type="button" onClick={() => {
-        const latest = get(current.draft.id);
+        const latest = get(slotOf(current));
         if (latest) selectDraft(latest);
       }}>{t("reload")}</button>}
+    </div>}
+    {restartBlocked && <div className="ref-notice" role="status">
+      {t("restartProtected")} <button type="button" disabled={busy || !online} onClick={openOriginal}>{t("openOriginal")}</button>
     </div>}
     {notice && <div role="status" className="ref-notice">{t(notice)}</div>}
     {!ready ? <p className="ref-notice">{t("wait")}</p> : legacy ?
@@ -299,22 +378,23 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
             <button type="button" onClick={() => setPanel("roles")}>{t("private")}</button>
           </div>
           <div className="ref-actions">
-            {(!protectedStatus && !busy || current.outbox) &&
+            {!restartBlocked && (!protectedStatus || current.outbox) &&
               <button type="button" className="primary" disabled={busy} onClick={() => sync("submit")}>{t("submit")}</button>}
             {current.revision > 0 && <button type="button" disabled={busy} onClick={() => sync("read")}>{t("refresh")}</button>}
-            <button type="button" className={protectedStatus || !online ? "primary" : ""} onClick={nextGame}>{t("nextGame")}</button>
+            <button type="button" disabled={busy} className={protectedStatus || !online ? "primary" : ""} onClick={() => leaveGame(true)}>{t("nextGame")}</button>
             <button type="button" onClick={() => setPanel("more")}>{t("more")}</button>
           </div>
         </div> :
         <Live key={current.draft.id}
           draft={current.draft} state={state} t={t} act={act} latest={latest}
-          tools={() => setPanel("more")} disabled={busy || !!protectedStatus} />
+          tools={() => setPanel("more")} restart={mayRestart ? () => setPanel("restart") : undefined}
+          disabled={busy || !!protectedStatus} />
       : <>
           {catalog.evenings.length > 0 && (catalogStatus === "ready" || catalogStatus === "offline") ? <>
             {catalogStatus === "offline" && <p className="ref-notice" role="status">{t("catalogCached")}</p>}
             <Setup key={(next?.id ?? "new") + ":" + catalog.evenings.map((item) => item.id).join(",")}
               catalog={catalog} locale={locale} t={t} last={next}
-              localRounds={sessions.filter((item) => !!replay(item.draft).state.result && item.status !== "rejected").map((item) => item.draft).reverse()}
+              localRounds={playedRounds(sessions)}
               onStart={init} />
           </> : <CatalogEntry status={catalogStatus} t={t} retry={pullCatalog} adminEvenings={adminEvenings} />}
           <div className="ref-section ref-drafts">
@@ -330,17 +410,26 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
       <div className="ref-actions">
         <button type="button" onClick={() => setPanel("journal")}>{t("journal")}</button>
         {state.phase !== "setup" && <button type="button" onClick={() => setPanel("roles")}>{t("private")}</button>}
+        {mayRestart && <button type="button" disabled={busy} onClick={() => setPanel("restart")}>{t("restartGame")}</button>}
         {!protectedStatus && !current.outbox && <>
-          <button type="button" disabled={busy} onClick={() => sync("save")}>{t("save")}</button>
+          {!restartBlocked && <button type="button" disabled={busy} onClick={() => sync("save")}>{t("save")}</button>}
           <button type="button" onClick={() => { setNote(""); setPanel("note"); }}>{t("note")}</button>
           {!state.result && <button type="button" onClick={() => setPanel("correction")}>{t("roleSwap")}</button>}
           <UndoRedo draft={current.draft} t={t} act={async (action) => { const draft = await act(action); if (draft) close(); return draft; }} />
         </>}
         <button type="button" onClick={() => void download(current.draft).catch(() => setWarning("storage"))}>{t("export")}</button>
+        <button type="button" disabled={busy} onClick={() => leaveGame()}>{t("leaveGame")}</button>
         {current.revision > 0 && <>
           <button type="button" onClick={() => setPanel("code")}>{t("showCode")}</button>
           <button type="button" disabled={busy} onClick={() => { if (window.confirm(t("restoreConfirm"))) void sync("read", true); }}>{t("restoreRemote")}</button>
         </>}
+      </div>
+    </Sheet>}
+    {panel === "restart" && mayRestart && <Sheet title={t("restartGame")} close={close}>
+      <p>{t("restartConfirm")}</p>
+      <div className="ref-actions">
+        <button type="button" autoFocus onClick={close}>{t("back")}</button>
+        <button type="button" className="primary" disabled={busy} onClick={restart}>{t("restartGame")}</button>
       </div>
     </Sheet>}
     {panel === "note" && <Sheet title={t("note")} close={close}>

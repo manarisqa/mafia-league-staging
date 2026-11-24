@@ -9,6 +9,7 @@ const screenshots = process.env.QA_SCREENSHOTS || "/tmp/mafia-referee-qa";
 const adminEmail = process.env.QA_ADMIN_EMAIL || "qa-admin@example.test";
 const playerEmail = process.env.QA_PLAYER_EMAIL || "qa-player@example.test";
 const password = process.env.QA_PASSWORD || "Synthetic-QA-Only-2026";
+const restartLabel = "Начать игру заново";
 assert.match(app, /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/, "This interactive suite writes only to a local synthetic fixture.");
 await mkdir(screenshots, { recursive: true });
 const browser = await chromium.launch({
@@ -71,6 +72,11 @@ async function start(page, short = false, capture = true, stopAtShortCheck = fal
   await click(page, "Подтвердить места");
   await waitStep(page, "roles");
   await inspectBoard?.("cards", "Мирный " + (short ? 5 : 6));
+  await firstNight(page, short, capture, stopAtShortCheck);
+}
+
+async function firstNight(page, short, capture = false, stopAtShortCheck = false) {
+  if (await btn(page, "Вернуться к игре").isVisible()) await click(page, "Вернуться к игре");
   const civilians = short ? 5 : 6;
   for (let i = civilians; i > 0; i--) await click(page, "Мирный " + i);
   await click(page, "Шериф 1");
@@ -160,7 +166,7 @@ async function finishDayExit(page) {
 }
 
 async function saveResult(page, networkLoss = false) {
-  await click(page, "Подтвердить результат");
+  if (!(await page.locator('[data-step="review"]').count())) await click(page, "Подтвердить результат");
   await waitStep(page, "review");
   if (networkLoss) {
     await page.context().setOffline(true);
@@ -211,6 +217,12 @@ if (process.env.QA_ACCEPTANCE_ONLY === "1" || process.env.QA_CAPTURE_BASELINE ==
 
 if (process.env.QA_EDGE_ONLY === "1") {
   try { await edgeScenarios(); await clubRegression(); await prepareEvening(); }
+  finally { await browser.close(); }
+  process.exit(0);
+}
+
+if (process.env.QA_RESTART_ONLY === "1") {
+  try { await restartScenarios(); }
   finally { await browser.close(); }
   process.exit(0);
 }
@@ -591,11 +603,228 @@ async function prepareEvening() {
     const catalog = await guest.request.get(app + "/api/referee/catalog");
     assert.equal(catalog.status(), 200);
     assert(!(await catalog.text()).includes(note));
-    console.log("PASS: admin prepared a new evening, guest selected it with its host, organizer note stayed private.");
+    await admin.locator("select[name=status]").first().selectOption("finished");
+    await click(admin, "Сохранить");
+    await admin.getByText("Вечер и приватная заметка сохранены.", { exact: true }).waitFor();
+    await guest.reload();
+    await guest.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
+    assert.equal(await guest.locator(`option[value="${id}"]`).count(), 0);
+    console.log("PASS: admin prepared and closed an evening, guest catalog followed both changes, organizer note stayed private.");
   } finally {
     await guestContext.close();
     await adminContext.close();
   }
+}
+
+function currentAttempt(page) {
+  return page.evaluate(() => {
+    const slot = JSON.parse(localStorage["mafia.guided.active"]);
+    return JSON.parse(localStorage["mafia.guided.draft." + slot]);
+  });
+}
+
+async function restartScenarios() {
+  const adminContext = await browser.newContext();
+  const admin = await login(adminContext, adminEmail);
+  try {
+    for (const short of [false, true]) {
+      const context = await browser.newContext({ viewport: { width: 820, height: 1180 } });
+      const page = await context.newPage();
+      const catalog = async () => (await page.request.get(app + "/api/referee/catalog")).json();
+      const before = await catalog();
+      await page.goto(app + "/referee");
+      await start(page, short, false, short);
+      if (!short) {
+        await speeches(page);
+        await noVote(page);
+        await seat(page, 8).click();
+        await click(page, "Подтвердить цель");
+      }
+      await waitStep(page, "donCheck");
+      await click(page, "Ещё");
+      await click(dialog(page), "Сохранить в облако");
+      await page.getByText("В облаке", { exact: true }).waitFor();
+      const old = await currentAttempt(page);
+      const stale = await context.newPage();
+      await stale.goto(app + "/referee");
+      await waitStep(stale, "donCheck");
+      await page.bringToFront();
+      await click(page, "Открыть действие");
+      await seat(dialog(page), 6).click();
+      await dialog(page).locator(".ref-answer").waitFor();
+      await click(dialog(page), restartLabel);
+      await click(dialog(page), "Назад");
+      assert.equal((await currentAttempt(page)).draft.id, old.draft.id);
+      await click(page, "Открыть действие");
+      await click(dialog(page), restartLabel);
+      await confirmRestart(page, old, restartLabel, 2);
+      await waitStep(stale, "roles");
+      await stale.close();
+      await page.bringToFront();
+      await page.waitForFunction(() => {
+        const slot = JSON.parse(localStorage["mafia.guided.active"]);
+        return JSON.parse(localStorage["mafia.guided.draft." + slot]).cancellations[0].state === "cancelled";
+      });
+      const oldRead = await page.request.post(app + "/api/referee/draft", { data: {
+        action: "read", id: old.draft.id, secret: old.secret, revision: old.revision,
+      } });
+      assert.equal(oldRead.status(), 403);
+      assert.equal(await page.locator(".ref-answer").count(), 0);
+
+      await firstNight(page, short);
+      await speeches(page, [1, 2]);
+      await sanction(page, 3);
+      await click(page, "Начать подсчёт");
+      await click(page, "0");
+      const voter = await currentAttempt(page);
+      await page.waitForFunction(async () => {
+        const shell = await caches.match("/referee");
+        return !!navigator.serviceWorker.controller && !!shell;
+      });
+      await context.setOffline(true);
+      await click(page, "Ещё");
+      await click(dialog(page), restartLabel);
+      const restartedVote = await confirmRestart(page, voter);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await waitStep(page, "roles");
+      assert.equal((await currentAttempt(page)).draft.id, restartedVote.draft.id);
+      assert.equal(await page.locator("[data-vote-order], [data-discipline-notice], [data-check-timer]").count(), 0);
+
+      await firstNight(page, short);
+      await technicalResult(page);
+      await click(page, "Отправить на проверку");
+      await page.getByText("Ждёт отправки", { exact: true }).waitFor();
+      const queued = await currentAttempt(page);
+      await click(page, "Ещё");
+      await click(dialog(page), restartLabel);
+      const replacement = await confirmRestart(page, queued);
+      const traffic = [];
+      page.on("request", (req) => {
+        if (req.url().endsWith("/api/referee/draft")) traffic.push(req.postDataJSON().action);
+      });
+      await context.setOffline(false);
+      await page.waitForFunction((id) => {
+        const slot = JSON.parse(localStorage["mafia.guided.active"]);
+        const entries = JSON.parse(localStorage["mafia.guided.draft." + slot]).cancellations;
+        return entries.some((item) => item.id === id && item.state === "cancelled");
+      }, queued.draft.id);
+      assert(!traffic.includes("submit"));
+      const late = await page.request.post(app + "/api/referee/draft", { data: {
+        action: "submit", id: queued.draft.id, secret: queued.secret, revision: 0, payload: queued.draft,
+      } });
+      assert.equal(late.status(), 403);
+      const unchanged = await catalog();
+      assert.deepEqual(unchanged.history, before.history);
+      assert.deepEqual(unchanged.evenings, before.evenings);
+      await admin.goto(app + "/admin/referee/inbox");
+      for (const attempt of [old, voter, queued]) {
+        assert.equal(await admin.locator(`a[href="/admin/referee/inbox/${attempt.draft.id}"]`).count(), 0);
+      }
+
+      await firstNight(page, short);
+      await technicalResult(page);
+      const sent = short ? await recoverLostSubmit(page) : await saveResult(page);
+      assert.equal(sent.id, replacement.draft.id);
+      await click(page, "Ещё");
+      assert.equal(await btn(dialog(page), restartLabel).count(), 0);
+      await click(dialog(page), "×");
+      await admin.goto(app + "/admin/referee/inbox/" + sent.id);
+      await admin.getByLabel("Я проверил наблюдения и причины исправлений").check();
+      await click(admin, "Утвердить и опубликовать");
+      await admin.getByRole("link", { name: "Открыть игру" }).waitFor();
+      const after = await catalog();
+      assert.equal(after.history.length, before.history.length + 1);
+      assert.equal(after.evenings.find((item) => item.id === sent.payload.evening).round, sent.payload.round + 1);
+      await click(page, "Следующая партия");
+      await page.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
+      await page.locator(".ref-setup").getByText(new RegExp("Партия " + (sent.payload.round + 1) + "$")).waitFor();
+      await context.close();
+      console.log("PASS: " + sent.payload.format + " private night, vote, offline reload, queued result restart, delayed replay rejection and one publication.");
+    }
+
+    const context = await browser.newContext({ viewport: { width: 820, height: 1180 } });
+    const page = await context.newPage();
+    await page.goto(app + "/referee");
+    await click(page, "Українська");
+    await page.getByRole("heading", { name: "Хто сьогодні за столом?" }).waitFor();
+    await click(page, "Підтвердити присутність тих, хто записався");
+    for (const player of ["Тінь", "Капітан", "Луна", "Фенікс"]) await click(page, player);
+    await click(page, "Запропонувати склад");
+    await click(page, "Розсадити");
+    await click(page, "Підтвердити місця");
+    await waitStep(page, "roles");
+    await click(page, "Мирний 6");
+    await click(page, "Ще");
+    await click(dialog(page), "Почати гру заново");
+    const restarted = await confirmRestart(page, await currentAttempt(page), "Почати гру заново");
+    await click(page, "Ще");
+    await click(dialog(page), "До списку чернеток");
+    await page.getByRole("heading", { name: "Хто сьогодні за столом?" }).waitFor();
+    await page.locator(".ref-drafts .ref-roster button").click();
+    await waitStep(page, "roles");
+    assert.equal((await currentAttempt(page)).draft.id, restarted.draft.id);
+    await context.close();
+    console.log("PASS: Ukrainian confirmation from role assignment.");
+  } finally { await adminContext.close(); }
+}
+
+async function confirmRestart(page, prior, label = restartLabel, clickCount = 1) {
+  const confirm = btn(dialog(page), label);
+  await confirm.click({ clickCount });
+  await page.waitForFunction((id) => {
+    const slot = JSON.parse(localStorage["mafia.guided.active"]);
+    return JSON.parse(localStorage["mafia.guided.draft." + slot]).draft.id !== id;
+  }, prior.draft.id);
+  await waitStep(page, "roles");
+  const current = await currentAttempt(page);
+  const setup = ({ version, rulesRevision, evening, round, format, host, players, organization }) =>
+    ({ version, rulesRevision, evening, round, format, host, players, organization });
+  assert.notEqual(current.draft.id, prior.draft.id);
+  assert.notEqual(current.secret, prior.secret);
+  assert.deepEqual(setup(current.draft), setup(prior.draft));
+  assert.deepEqual(current.draft.events, []);
+  assert.equal(current.outbox, false);
+  assert.equal(current.cancellations.filter((entry) => entry.id === prior.draft.id).length, 1);
+  return current;
+}
+
+async function technicalResult(page) {
+  await click(page, "Технический результат");
+  await dialog(page).getByRole("combobox").selectOption("red");
+  await dialog(page).getByLabel("Причина", { exact: true }).fill("Синтетическая проверка восстановления");
+  await click(dialog(page), "Подтвердить результат");
+  await waitStep(page, "review");
+}
+
+async function recoverLostSubmit(page) {
+  let sent;
+  const pattern = "**/api/referee/draft";
+  const dropResponse = async (route) => {
+    if (route.request().postDataJSON().action !== "submit") return route.continue();
+    const response = await route.fetch();
+    assert.equal(response.ok(), true);
+    sent = route.request().postDataJSON();
+    await route.abort("connectionreset");
+  };
+  await page.route(pattern, dropResponse);
+  const failed = page.waitForEvent("requestfailed", { predicate: (request) =>
+    request.url().endsWith("/api/referee/draft") && request.postDataJSON().action === "submit" });
+  await click(page, "Отправить на проверку");
+  await failed;
+  await page.locator('.ref-notice[role="alert"]').waitFor();
+  await page.unroute(pattern, dropResponse);
+  assert(sent);
+  const submitted = await currentAttempt(page);
+  assert.equal(submitted.outbox, true);
+  await click(page, "Ещё");
+  await click(dialog(page), restartLabel);
+  await confirmRestart(page, submitted);
+  await page.getByText(/Исходная попытка уже отправлена/).waitFor();
+  await click(page, "Открыть исходный протокол");
+  await waitStep(page, "review");
+  await page.getByText("На проверке", { exact: true }).waitFor();
+  assert.equal((await currentAttempt(page)).draft.id, submitted.draft.id);
+  return sent;
 }
 
 async function seedSyntheticDraw(context) {

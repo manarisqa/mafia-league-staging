@@ -7,11 +7,17 @@ export const activeKey = prefix + "active";
 export const catalogKey = prefix + "catalog";
 const draftKey = (id: string) => prefix + "draft." + id;
 export const clockKey = (id: string) => prefix + "clock." + id;
+export const isDraftChange = (key: string | null) => key === null || key.startsWith(prefix + "draft.");
 
 export type Status = "draft" | "submitted" | "clarify" | "approved" | "rejected" | "archived" | "revoked";
+type Cancellation = {
+  id: string; secret: string; startedAt: string; replacement: string; at: string;
+  state: "pending" | "cancelled" | "protected";
+};
 export type LocalDraft = {
   draft: Draft; secret: string; serial: number; revision: number; status: Status; synced: number;
   outbox: boolean; note: string | null;
+  slot?: string; cancellations?: Cancellation[]; discarded?: string[];
 };
 
 export function read<T>(key: string): T | null {
@@ -33,8 +39,12 @@ export function list() {
 }
 
 export function get(id: string) {
-  return read<LocalDraft>(draftKey(id));
+  return read<LocalDraft>(draftKey(id)) ?? list().find((record) => record.draft.id === id) ?? null;
 }
+
+export const slotOf = (record: LocalDraft) => record.slot ?? record.draft.id;
+export const wasCancelled = (id: string) => list().some((record) =>
+  record.cancellations?.some((entry) => entry.id === id) || record.discarded?.includes(id));
 
 export function newLocal(draft: Draft): LocalDraft {
   const secret = Array.from(crypto.getRandomValues(new Uint8Array(32)), (n) => n.toString(16).padStart(2, "0")).join("");
@@ -42,18 +52,50 @@ export function newLocal(draft: Draft): LocalDraft {
 }
 
 export async function write(next: LocalDraft, expected: number | null, activate = false) {
+  const slot = slotOf(next);
   const put = () => {
-    const current = get(next.draft.id);
+    const current = read<LocalDraft>(draftKey(slot));
     if ((current?.serial ?? null) !== expected) throw new Error("localConflict");
+    if (expected === null && wasCancelled(next.draft.id)) throw new Error("conflict");
     const saved = { ...next, serial: (current?.serial ?? 0) + 1 };
-    save(draftKey(next.draft.id), saved);
-    if (activate) save(activeKey, next.draft.id);
+    save(draftKey(slot), saved);
+    if (activate) save(activeKey, slot);
     return saved;
   };
-  return navigator.locks ? navigator.locks.request(draftKey(next.draft.id), put) : put();
+  return navigator.locks ? navigator.locks.request(prefix + "write", put) : put();
 }
 
-export async function cloud(action: "read" | "save" | "submit" | "revoke", current: LocalDraft) {
+export async function withCloudLock<T>(record: LocalDraft, task: (latest: LocalDraft) => Promise<T>) {
+  const slot = slotOf(record);
+  const run = () => {
+    const latest = get(slot);
+    if (!latest || latest.serial !== record.serial) throw new Error("localConflict");
+    return task(latest);
+  };
+  return navigator.locks ? navigator.locks.request(prefix + "cloud." + slot, run) : run();
+}
+
+export function restartLocal(record: LocalDraft): LocalDraft {
+  if (record.status !== "draft" || record.cancellations?.some((entry) => entry.state === "protected")) {
+    throw new Error("restartProtected");
+  }
+  const at = new Date().toISOString();
+  const next = newLocal({ ...record.draft, id: crypto.randomUUID(), startedAt: at, events: [] });
+  return {
+    ...next, slot: slotOf(record), discarded: record.discarded,
+    cancellations: [...(record.cancellations ?? []), {
+      id: record.draft.id, secret: record.secret, at, startedAt: record.draft.startedAt,
+      replacement: next.draft.id, state: "pending",
+    }],
+  };
+}
+
+export function clearClocks(id: string) {
+  const key = clockKey(id) + ".";
+  for (const entry of Object.keys(localStorage)) if (entry.startsWith(key)) localStorage.removeItem(entry);
+}
+
+export async function cloud(action: "read" | "save" | "submit" | "revoke" | "restart", current: LocalDraft, cancellation?: Cancellation) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
   try {
@@ -62,12 +104,51 @@ export async function cloud(action: "read" | "save" | "submit" | "revoke", curre
       cache: "no-store", credentials: "same-origin",
       signal: controller.signal,
       body: JSON.stringify({
-        id: current.draft.id, secret: current.secret, revision: current.revision, action,
+        id: cancellation?.id ?? current.draft.id, secret: cancellation?.secret ?? current.secret,
+        revision: cancellation ? 0 : current.revision, action,
         ...(action === "save" || action === "submit" ? { payload: current.draft } : {}),
+        ...(action === "restart" && cancellation ? { payload: {
+          attempt: { ...current.draft, id: cancellation.id, startedAt: cancellation.startedAt, events: [] },
+          replacement: cancellation.replacement,
+        } } : {}),
       }),
     });
     return await response.json() as { revision: number; status: Status; note?: string; payload?: Draft; error?: string };
   } finally { clearTimeout(timeout); }
+}
+
+// Only cancellation receipts are retried automatically. Sending a result is a separate user action.
+export async function reconcileRestarts(record: LocalDraft, persist: (value: LocalDraft, serial: number) => Promise<LocalDraft>) {
+  let working = record;
+  for (const entry of record.cancellations ?? []) {
+    if (entry.state === "protected") throw new Error("restartProtected");
+    if (entry.state !== "pending") continue;
+    const result = await cloud("restart", working, entry);
+    if (result.error && result.error !== "restart_protected") throw new Error(result.error);
+    if (!result.error && result.status !== "revoked") throw new Error("unavailable");
+    const state = result.error ? "protected" : "cancelled";
+    working = await persist({
+      ...working, outbox: state === "protected" ? false : working.outbox,
+      cancellations: working.cancellations?.map((prior) => prior.id === entry.id ? { ...prior, state } : prior),
+    }, working.serial);
+    if (state === "protected") throw new Error("restartProtected");
+  }
+  return working;
+}
+
+export async function recoverProtected(record: LocalDraft): Promise<LocalDraft> {
+  const entries = record.cancellations ?? [];
+  const index = entries.findIndex((entry) => entry.state === "protected");
+  const original = entries[index];
+  if (!original) throw new Error("invalid");
+  const result = await cloud("read", record, original);
+  if (result.error || !result.payload || result.status === "draft") throw new Error(result.error ?? "invalid");
+  const draft = validate(result.payload).draft;
+  return {
+    ...record, draft, secret: original.secret, status: result.status, synced: draft.events.length,
+    revision: result.revision, note: result.note ?? null, outbox: false, cancellations: entries.slice(0, index),
+    discarded: [...(record.discarded ?? []), ...entries.slice(index + 1).map((entry) => entry.id), record.draft.id],
+  };
 }
 
 export async function restoreWithCode(code: string) {

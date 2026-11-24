@@ -119,9 +119,9 @@ function Discipline({ draft, state, t, act, close }: {
   </Sheet>;
 }
 
-function NightCheck({ draft, state, t, act, close, clock, disabled }: {
+function NightCheck({ draft, state, t, act, close, clock, disabled, restart }: {
   draft: Draft; state: State; t: Translate; act: Act; close: () => void;
-  clock: ReturnType<typeof useClock>; disabled: boolean;
+  clock: ReturnType<typeof useClock>; disabled: boolean; restart?: () => void;
 }) {
   const [target, setTarget] = useState<number | null>(null);
   const actor = checkingSeat(state);
@@ -157,6 +157,7 @@ function NightCheck({ draft, state, t, act, close, clock, disabled }: {
       {answer && <button type="button" className="primary" disabled={!canConfirm} onClick={() => confirm("observed")}>{t("confirmCheck")}</button>}
       <button type="button" disabled={!canConfirm} onClick={() => confirm(actor?.alive ? "noTarget" : "absent")}>{t(actor?.alive ? "noTarget" : "absent")}</button>
       <button type="button" disabled={!canConfirm} onClick={() => confirm("unknown")}>{t("unknown")}</button>
+      {restart && <button type="button" disabled={disabled} onClick={() => { close(); restart(); }}>{t("restartGame")}</button>}
     </div>
   </Sheet>;
 }
@@ -195,8 +196,8 @@ const hints: Partial<Record<State["step"], Word>> = {
   shot: "shotHint", best: "bestHint",
 };
 
-export function Live({ draft, state, t, act, tools, disabled, latest }: {
-  draft: Draft; state: State; t: Translate; act: Act; tools: () => void; disabled: boolean; latest?: Event;
+export function Live({ draft, state, t, act, tools, disabled, latest, restart }: {
+  draft: Draft; state: State; t: Translate; act: Act; tools: () => void; disabled: boolean; latest?: Event; restart?: () => void;
 }) {
   const [locked, setLocked] = useState(false);
   const { step } = state;
@@ -250,14 +251,14 @@ export function Live({ draft, state, t, act, tools, disabled, latest }: {
       </div>}
     </div>
     <Procedure key={state.timedBy} draft={draft} state={state} t={t} act={act} clock={clock}
-      disabled={disabled} lock={() => { clock.pause(); setLocked(true); }} tools={tools} />
+      disabled={disabled} lock={() => { clock.pause(); setLocked(true); }} tools={tools} restart={restart} />
     <DisciplineNotice latest={latest} state={state} draft={draft} t={t} act={act} disabled={disabled} />
   </div>;
 }
 
-function Procedure({ draft, state, t, act, clock, disabled, lock, tools }: {
+function Procedure({ draft, state, t, act, clock, disabled, lock, tools, restart }: {
   draft: Draft; state: State; t: Translate; act: Act; clock: ReturnType<typeof useClock>;
-  disabled: boolean; lock: () => void; tools: () => void;
+  disabled: boolean; lock: () => void; tools: () => void; restart?: () => void;
 }) {
   const [selected, setSelected] = useState<number[]>([]);
   const [joint, setJoint] = useState<number | null>(null);
@@ -377,7 +378,8 @@ function Procedure({ draft, state, t, act, clock, disabled, lock, tools }: {
       {canDiscipline && button("technicalResult", () => setSheet("exception"))}
     </div>
     {sheet === "foul" && canDiscipline && <Discipline draft={draft} state={state} t={t} act={act} close={() => setSheet(null)} />}
-    {sheet === "check" && isCheck && <NightCheck draft={draft} state={state} t={t} act={act} clock={clock} disabled={disabled} close={() => setSheet(null)} />}
+    {sheet === "check" && isCheck && <NightCheck draft={draft} state={state} t={t} act={act} clock={clock}
+      disabled={disabled} close={() => setSheet(null)} restart={restart} />}
     {sheet === "exception" && canDiscipline && <Exception t={t} act={act} close={() => setSheet(null)} />}
   </>;
 }

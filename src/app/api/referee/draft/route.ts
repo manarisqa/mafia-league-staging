@@ -7,9 +7,10 @@ const input = z.object({
   id: z.string().uuid(),
   secret: z.string().regex(/^[0-9a-f]{64}$/),
   revision: z.number().int().min(0).max(2147483647),
-  action: z.enum(["read", "save", "submit", "revoke"]),
+  action: z.enum(["read", "save", "submit", "revoke", "restart"]),
   payload: z.unknown().optional(),
 }).strict();
+const restartInput = z.object({ attempt: z.unknown(), replacement: z.string().uuid() }).strict();
 
 function reply(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     return reply({ error: "denied" }, 403);
   }
   let parsed: z.infer<typeof input>;
-  let payload = null;
+  let payload: unknown = null;
   try {
     parsed = input.parse(await boundedJson(request));
     if (parsed.action === "save" || parsed.action === "submit") {
@@ -48,6 +49,13 @@ export async function POST(request: Request) {
         return reply({ error: "invalid" }, 422);
       }
       payload = data.draft;
+    } else if (parsed.action === "restart") {
+      const { attempt, replacement } = restartInput.parse(parsed.payload);
+      const { draft } = validate(attempt);
+      if (draft.id !== parsed.id || draft.events.length || replacement === draft.id) {
+        return reply({ error: "invalid" }, 422);
+      }
+      payload = { attempt: draft, replacement };
     } else if (parsed.payload !== undefined) {
       return reply({ error: "invalid" }, 422);
     }
@@ -61,6 +69,6 @@ export async function POST(request: Request) {
     p_revision: parsed.revision, p_payload: payload,
   });
   if (!result || result.error) return reply({ error: "unavailable" }, 503);
-  const errors: Record<string, number> = { denied: 403, conflict: 409, round: 409, rate: 429, invalid: 422 };
+  const errors: Record<string, number> = { denied: 403, conflict: 409, restart_protected: 409, round: 409, rate: 429, invalid: 422 };
   return reply(result.data, errors[result.data?.error] ?? 200);
 }
