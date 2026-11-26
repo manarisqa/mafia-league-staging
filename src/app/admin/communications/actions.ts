@@ -20,7 +20,7 @@ export type PreviewState = {
 };
 
 const input = z.object({
-  evening: z.string().uuid(),
+  evening: z.guid(),
   category: notificationCategory,
   key: z.string().regex(/^[0-9a-f]{32}$/).nullable(),
 });

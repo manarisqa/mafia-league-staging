@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { protocolTimestamp as date } from "../../protocol-timestamp";
 
 export const PROCEDURE = "mafia-league-guided-2026-11-24-v1";
 export const CURRENT_RULES_REVISION = 2;
@@ -10,8 +11,7 @@ export const formats = ["classic10", "short9"] as const;
 export type Format = (typeof formats)[number];
 export const seatCount = (format: Format) => format === "classic10" ? 10 : 9;
 
-const uuid = z.string().uuid();
-const date = z.string().datetime({ offset: true });
+const uuid = z.guid();
 const text = (max: number, min = 1) => z.string().trim().min(min).max(max)
   .regex(/^[^<>\u0000-\u001f\u007f]*$/u);
 const seat = z.number().int().min(1).max(10);

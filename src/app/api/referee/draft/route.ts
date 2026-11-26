@@ -4,13 +4,13 @@ import { validate } from "@/lib/referee/guided/reducer";
 
 const maxBytes = 480_000;
 const input = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   secret: z.string().regex(/^[0-9a-f]{64}$/),
   revision: z.number().int().min(0).max(2147483647),
   action: z.enum(["read", "save", "submit", "revoke", "restart"]),
   payload: z.unknown().optional(),
 }).strict();
-const restartInput = z.object({ attempt: z.unknown(), replacement: z.string().uuid() }).strict();
+const restartInput = z.object({ attempt: z.unknown(), replacement: z.guid() }).strict();
 
 function reply(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });

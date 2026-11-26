@@ -396,7 +396,7 @@ try {
     schema: "mafia-league-referee-protocol-v1",
     draftId: "qa-historical-short",
     clientRevision: 0,
-    gameStartAt: "2026-10-19T10:00:00Z",
+    gameStartAt: "2026-10-19T12:00+0200",
     timezone: "Europe/Vienna",
     normativeRegulationId: "mafia-league-game-regulations-v1-2026-10-18",
     format: "short9", title: "Синтетический исторический протокол",

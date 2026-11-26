@@ -60,7 +60,7 @@ export const ClubAnalyticsSchema = z.object({
     games: count,
   })),
   recent: z.array(z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     place: z.string(),
     starts_at: z.string(),
     attendance: nullableCount,

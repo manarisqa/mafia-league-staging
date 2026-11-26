@@ -4,7 +4,7 @@ import { getPublicClient } from "../supabase";
 import type { ProtocolFact } from "./player-insights";
 
 const factsSchema = z.array(z.object({
-  gameId: z.string().uuid(),
+  gameId: z.guid(),
   revision: z.number().int().nonnegative().safe(),
   bestHits: z.number().int().min(0).max(3).nullable(),
 }).strict());

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CURRENT_RULES_REVISION, FAIR_QUEUE, FAIR_SEAT, PROCEDURE, inEveningWindow, seatCount, type Action, type Draft, type Format } from "../src/lib/referee/guided/protocol";
+import { CURRENT_RULES_REVISION, FAIR_QUEUE, FAIR_SEAT, PROCEDURE, actionSchema, draftSchema, inEveningWindow, seatCount, type Action, type Draft, type Format } from "../src/lib/referee/guided/protocol";
 import { append, checkAnswer, focusSeat, projection, replay, timing, validate } from "../src/lib/referee/guided/reducer";
 import { fairSeats, queue, type Round } from "../src/lib/referee/guided/fair";
 
@@ -32,6 +32,31 @@ function fixture(format: Format = "classic10") {
     events: [],
   } satisfies Draft;
 }
+
+test("guided draft validation retains PostgreSQL IDs and timestamp strings on restore", () => {
+  const draft = fixture();
+  draft.id = "00000000-0000-0000-0000-0000000000a1";
+  draft.startedAt = "2026-11-24T19:00+0100";
+  assert.deepEqual(validate(JSON.parse(JSON.stringify(draft))).draft, draft);
+  assert.throws(() => validate({ ...draft, id: "not-a-uuid" }));
+  assert.throws(() => validate({ ...draft, startedAt: "2026-11-24T19:00+0199" }));
+  assert.throws(() => validate({ ...draft, unexpected: true }));
+});
+
+test("protocol collection limits are checked before validating their elements", () => {
+  const draft = fixture();
+  const invalid = draftSchema.safeParse({ ...draft, players: Array(11).fill(null) });
+  assert.equal(invalid.success, false);
+  assert.deepEqual(invalid.error.issues.map(({ code, path }) => ({ code, path })), [
+    { code: "too_big", path: ["players"] },
+  ]);
+  assert(actionSchema.safeParse({ type: "best", targets: [1, 2, 3], seconds: null }).success);
+  const targets = actionSchema.safeParse({ type: "best", targets: [1, 2, 3, null], seconds: null });
+  assert.equal(targets.success, false);
+  assert.deepEqual(targets.error.issues.map(({ code, path }) => ({ code, path })), [
+    { code: "too_big", path: ["targets"] },
+  ]);
+});
 
 function flow(format: Format = "classic10", rulesRevision?: Draft["rulesRevision"]) {
   let d: Draft = fixture(format);

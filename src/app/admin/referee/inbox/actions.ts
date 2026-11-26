@@ -7,11 +7,11 @@ import { append, projection, validate } from "@/lib/referee/guided/reducer";
 import { actionSchema } from "@/lib/referee/guided/protocol";
 
 const reviewSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   revision: z.number().int().positive().max(2147483647),
   action: z.enum(["approve", "clarify", "rejected", "archived", "correction"]),
   reason: z.string().trim().max(500),
-  host: z.string().uuid().nullable(),
+  host: z.guid().nullable(),
   checked: z.boolean(),
   correction: actionSchema.optional(),
 }).strict();

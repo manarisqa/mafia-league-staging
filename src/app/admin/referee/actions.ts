@@ -10,10 +10,10 @@ import { CLOUD_COLUMNS, type CloudError, type CloudProtocol, type CloudResult, t
 const idSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
 const revisionSchema = z.number().int().safe().nonnegative();
 const approvalSchema = z.object({
-  game: z.string().uuid(),
+  game: z.guid(),
   gameRevision: revisionSchema.positive(),
-  host: z.string().uuid(),
-  seats: z.record(z.string().regex(/^(?:[1-9]|10)$/), z.string().uuid()),
+  host: z.guid(),
+  seats: z.record(z.string().regex(/^(?:[1-9]|10)$/), z.guid()),
   gapsReviewed: z.boolean(),
 });
 

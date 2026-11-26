@@ -11,7 +11,7 @@ import { Review } from "./review";
 
 export default async function DraftPage({ params }: PageProps<"/admin/referee/inbox/[id]">) {
   const [{ supabase }, { id }, locale] = await Promise.all([requireAdmin(), params, getLocale()]);
-  if (!z.string().uuid().safeParse(id).success) notFound();
+  if (!z.guid().safeParse(id).success) notFound();
   const t = translate(locale);
   const [record, players, history] = await Promise.all([
     supabase.from("guided_referee_drafts").select("id,status,revision,payload,game_id,review_note,evening_id").eq("id", id).maybeSingle(),
