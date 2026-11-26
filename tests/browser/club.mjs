@@ -72,9 +72,8 @@ try {
     for (const url of [app + "/login", guest.url()]) {
       await withoutScripts.goto(url);
       const credentials = withoutScripts.locator("form:has(#password)");
-      await credentials.first().waitFor({ state: "attached" });
-      const methods = await credentials.evaluateAll((forms) => forms.map((form) => form.method));
-      assert(methods.length > 0 && methods.every((method) => method === "post"));
+      await credentials.waitFor({ state: "attached" });
+      assert.equal(await credentials.evaluate((form) => form.method), "post");
     }
   } finally {
     await withoutScripts.close();
@@ -84,6 +83,27 @@ try {
   await guest.locator("#password").fill(password);
   await button(guest, "Зарегистрироваться").click();
   await guest.waitForURL(app + path);
+
+  const unenhancedLogin = allowCompile(await browser.newPage({ javaScriptEnabled: false }));
+  try {
+    const search = new URLSearchParams({ error: "forbidden", next: path });
+    await unenhancedLogin.goto(app + "/login?" + search);
+    const credentials = unenhancedLogin.locator("form:has(#password)");
+    await credentials.waitFor({ state: "visible" });
+    assert.match(await credentials.getByRole("alert").innerText(), /нет прав администратора/);
+    assert.equal(await credentials.locator("input[name=next]").inputValue(), path);
+    await credentials.locator("#email").fill(email);
+    await credentials.locator("#password").fill(password);
+    await Promise.all([
+      unenhancedLogin.waitForRequest((request) => request.method() === "POST" &&
+        new URL(request.url()).pathname === "/login"),
+      button(unenhancedLogin, "Войти").click(),
+    ]);
+    await unenhancedLogin.waitForURL(app + path);
+  } finally {
+    await unenhancedLogin.close();
+  }
+
   await guest.setViewportSize({ width: 375, height: 812 });
   await button(guest, "Возможно").click();
   await text(guest, "Отмечено: возможно, придёте.").waitFor();

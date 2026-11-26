@@ -12,9 +12,11 @@ export default function LoginPage(props: PageProps<"/login">) {
     <section className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
       <h1 className="font-display text-4xl font-bold"><Text id="login" /></h1>
       <p className="mt-3 text-muted"><Text id="loginIntro" /></p>
-      <Suspense fallback={<LoginSection forbidden={false} />}>
+      <Suspense fallback={<div className="mt-8 min-h-44 rounded-card border border-border bg-surface" aria-busy="true" />}>
         <LoginFormWithParams searchParams={props.searchParams} />
       </Suspense>
+      {/* Expose the streamed form when the browser cannot reveal the Suspense result. */}
+      <noscript><style>{"@layer base { div[hidden]:has(form #email) { display: contents !important; } }"}</style></noscript>
     </section>
   );
 }
