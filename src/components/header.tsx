@@ -52,14 +52,14 @@ export function Header({ authBar, authMenu }: { authBar: ReactNode; authMenu: Re
         </nav>
 
         <div className="flex items-center gap-2">
-          <Link href="/referee" className="inline-flex min-h-11 items-center whitespace-nowrap rounded-control bg-accent px-3 text-sm font-semibold hover:bg-accent-hover">
+          <Link href="/referee" className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-control bg-accent px-3 text-sm font-semibold hover:bg-accent-hover">
             {t("hostGame")}
           </Link>
           <div className="hidden xl:block"><LanguageSwitch /></div>
           {authBar}
           <button
             type="button"
-            className="inline-flex size-11 items-center justify-center rounded-control border border-border bg-surface xl:hidden"
+            className="inline-flex size-11 shrink-0 items-center justify-center rounded-control border border-border bg-surface xl:hidden"
             aria-label={t(open ? "closeMenu" : "openMenu")}
             aria-expanded={open}
             aria-controls="mobile-menu"

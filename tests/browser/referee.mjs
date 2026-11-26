@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -43,9 +44,10 @@ async function fit(page, label, root = page) {
 async function login(context, email) {
   const page = await context.newPage();
   await page.goto(app + "/login");
-  await page.locator("#email").fill(email);
-  await page.locator("#password").fill(password);
-  await click(page, "Войти");
+  const form = page.locator("main form:visible");
+  await form.locator("#email").fill(email);
+  await form.locator("#password").fill(password);
+  await click(form, "Войти");
   await page.waitForURL((url) => url.pathname !== "/login");
   return page;
 }
@@ -223,6 +225,15 @@ if (process.env.QA_EDGE_ONLY === "1") {
 
 if (process.env.QA_RESTART_ONLY === "1") {
   try { await restartScenarios(); }
+  finally { await browser.close(); }
+  process.exit(0);
+}
+
+if (["restore", "restart", "all"].includes(process.env.QA_HARDENING)) {
+  try {
+    if (process.env.QA_HARDENING !== "restore") await recoveryAfterRestart();
+    if (process.env.QA_HARDENING !== "restart") await delayedRecovery();
+  }
   finally { await browser.close(); }
   process.exit(0);
 }
@@ -623,6 +634,146 @@ function currentAttempt(page) {
   });
 }
 
+async function saveCloud(page) {
+  await click(page, "Ещё");
+  const response = page.waitForResponse((res) => res.url().endsWith("/api/referee/draft") &&
+    res.request().postDataJSON().action === "save");
+  const started = performance.now();
+  await click(dialog(page), "Сохранить в облако");
+  assert((await response).ok());
+  await page.getByText("В облаке", { exact: true }).waitFor();
+  return Math.round(performance.now() - started);
+}
+
+async function recoveryAfterRestart() {
+  const profile = await mkdtemp(resolve(tmpdir(), "mafia-referee-test-"));
+  const launch = () => chromium.launchPersistentContext(profile, {
+    executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
+    headless: true, viewport: { width: 820, height: 1180 }, args: ["--no-sandbox"],
+  });
+  let context = await launch();
+  const errors = new WeakMap();
+  const newPage = async () => {
+    const page = await context.newPage();
+    const messages = [];
+    errors.set(page, messages);
+    page.on("pageerror", (error) => messages.push(error.message));
+    return page;
+  };
+  const expectRestored = async (page, step, phase) => {
+    try { await waitStep(page, step); }
+    catch (error) {
+      console.log(JSON.stringify({ phase, errors: errors.get(page), ...await page.evaluate(() => ({
+        active: !!localStorage.getItem("mafia.guided.active"),
+        draftCount: Object.keys(localStorage).filter((key) => key.startsWith("mafia.guided.draft.")).length,
+        visibleStep: document.querySelector("[data-step]")?.getAttribute("data-step"),
+        mount: document.querySelector("[data-referee] h1")?.textContent,
+        visibility: document.visibilityState,
+        notice: document.querySelector("[data-referee] .ref-notice")?.textContent,
+        scripts: [...document.scripts].filter((script) => script.src).length,
+        navigationStatus: performance.getEntriesByType("navigation")[0]?.responseStatus,
+        serviceWorker: !!navigator.serviceWorker.controller,
+      })) }));
+      throw error;
+    }
+  };
+  try {
+    await context.newPage();
+    let page = await newPage();
+    await page.goto(app + "/referee");
+    await start(page, true, false, true);
+    const night = (await currentAttempt(page)).draft;
+    await page.close();
+    page = await newPage();
+    await page.bringToFront();
+    await page.goto(app + "/referee");
+    await expectRestored(page, "donCheck", "tab reopen");
+    assert.deepEqual((await currentAttempt(page)).draft, night);
+    await context.close();
+    context = await launch();
+    page = await newPage();
+    await page.bringToFront();
+    await page.goto(app + "/referee");
+    await expectRestored(page, "donCheck", "browser restart");
+    assert.deepEqual((await currentAttempt(page)).draft, night);
+
+    await check(page, 6);
+    await check(page, 9);
+    await click(page, "Завершить этап");
+    await click(page, "Объявить утро");
+    await speeches(page, [1, 2]);
+    await click(page, "Начать подсчёт");
+    await page.waitForFunction(async () => !!navigator.serviceWorker.controller && !!await caches.match("/referee"));
+    await context.setOffline(true);
+    const started = performance.now();
+    await click(page, "0");
+    const vote = (await currentAttempt(page)).draft;
+    const localActionMs = Math.round(performance.now() - started);
+    const step = await page.locator("[data-step]").getAttribute("data-step");
+    assert(step);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expectRestored(page, step, "offline vote reload");
+    assert.deepEqual((await currentAttempt(page)).draft, vote);
+    await context.setOffline(false);
+    const cloudSaveMs = await saveCloud(page);
+    assert.deepEqual((await currentAttempt(page)).draft, vote);
+    console.log(JSON.stringify({ recovery: "tab close, browser restart, offline vote reload and cloud save", localActionMs, cloudSaveMs }));
+  } finally { await context.close(); }
+}
+
+async function delayedRecovery() {
+  const context = await browser.newContext({ viewport: { width: 820, height: 1180 } });
+  let release;
+  const delay = new Promise((resolve) => { release = resolve; });
+  try {
+    const page = await context.newPage();
+    await page.goto(app + "/referee");
+    await start(page, true, false, true);
+    await saveCloud(page);
+    await click(page, "Ещё");
+    await click(dialog(page), "Показать код восстановления");
+    const code = await dialog(page).getByLabel("Закрытый код облачной копии").inputValue();
+    const id = code.split(".")[0];
+    const evidence = (tab) => tab.evaluate((draftId) => {
+      const { draft, revision } = JSON.parse(localStorage.getItem("mafia.guided.draft." + draftId));
+      return { draft, revision };
+    }, id);
+    await click(dialog(page), "×");
+    const other = await context.newPage();
+    await other.goto(app + "/referee");
+    await waitStep(other, "donCheck");
+    await page.bringToFront();
+    await click(page, "Ещё");
+    await click(dialog(page), "К списку черновиков");
+    await click(page, "Восстановить черновик");
+    await dialog(page).getByLabel("Закрытый код облачной копии").fill(code);
+
+    let captured;
+    const responseRead = new Promise((resolve) => { captured = resolve; });
+    await page.route("**/api/referee/draft", async (route) => {
+      const response = await route.fetch();
+      captured((await response.json()).revision);
+      await delay;
+      await route.fulfill({ response });
+    });
+    await click(dialog(page), "Восстановить черновик");
+    const earlierRevision = await responseRead;
+    await other.bringToFront();
+    await check(other, 6);
+    await saveCloud(other);
+    const latest = await evidence(other);
+    assert(latest.revision > earlierRevision);
+    release();
+    await page.waitForFunction(() => document.querySelector('[role="alert"]')?.textContent.includes("Облачная версия изменилась") ||
+      !!document.querySelector(".ref-live"));
+    const stored = await evidence(other);
+    assert.equal(stored.revision, latest.revision, "A late recovery response must not roll back a newer cloud revision");
+    assert.deepEqual(stored.draft, latest.draft);
+    await page.getByText(/Облачная версия изменилась/).waitFor();
+    console.log("PASS: delayed restoration cannot replace a newer saved revision from another tab.");
+  } finally { release(); await context.close(); }
+}
+
 async function restartScenarios() {
   const adminContext = await browser.newContext();
   const admin = await login(adminContext, adminEmail);
@@ -737,8 +888,17 @@ async function restartScenarios() {
       await click(dialog(page), "×");
       await admin.goto(app + "/admin/referee/inbox/" + sent.id);
       await admin.getByLabel("Я проверил наблюдения и причины исправлений").check();
-      await click(admin, "Утвердить и опубликовать");
-      await admin.getByRole("link", { name: "Открыть игру" }).waitFor();
+      const duplicateAdmin = await adminContext.newPage();
+      await duplicateAdmin.goto(app + "/admin/referee/inbox/" + sent.id);
+      await duplicateAdmin.getByLabel("Я проверил наблюдения и причины исправлений").check();
+      await Promise.all([admin, duplicateAdmin].map((tab) => click(tab, "Утвердить и опубликовать")));
+      const gameLinks = await Promise.all([admin, duplicateAdmin].map(async (tab) => {
+        const link = tab.getByRole("link", { name: "Открыть игру" });
+        await link.waitFor();
+        return link.getAttribute("href");
+      }));
+      assert.equal(gameLinks[0], gameLinks[1]);
+      await duplicateAdmin.close();
       const after = await catalog();
       assert.equal(after.history.length, before.history.length + 1);
       assert.equal(after.evenings.find((item) => item.id === sent.payload.evening).round, sent.payload.round + 1);
@@ -746,7 +906,7 @@ async function restartScenarios() {
       await page.getByRole("heading", { name: "Кто сегодня за столом?" }).waitFor();
       await page.locator(".ref-setup").getByText(new RegExp("Партия " + (sent.payload.round + 1) + "$")).waitFor();
       await context.close();
-      console.log("PASS: " + sent.payload.format + " private night, vote, offline reload, queued result restart, delayed replay rejection and one publication.");
+      console.log("PASS: " + sent.payload.format + " private night, vote, offline reload, queued result restart, delayed replay rejection and one publication from two admin tabs.");
     }
 
     const context = await browser.newContext({ viewport: { width: 820, height: 1180 } });
@@ -1302,7 +1462,8 @@ async function checkSeats(page, expected, root = page.locator(".ref-arena")) {
 async function roundTable(mode) {
   const primary = { width: 820, height: 1180 };
   const compact = { width: 768, height: 1024 };
-  const adapt = [{ width: 375, height: 812 }, { width: 390, height: 844 },
+  const adapt = [{ width: 360, height: 800 }, { width: 375, height: 812 }, { width: 390, height: 844 },
+    { width: 400, height: 900 }, { width: 430, height: 932 }, { width: 1024, height: 768 },
     { width: 1180, height: 820 }, { width: 1440, height: 1000 }];
   const measurements = [];
   for (const short of [false, true]) {
@@ -1311,6 +1472,16 @@ async function roundTable(mode) {
     const context = await browser.newContext({ viewport: primary, isMobile: true, hasTouch: true });
     await seedSyntheticDraw(context);
     const page = await context.newPage();
+    if (mode === "after") {
+      await page.route("**/api/referee/catalog", async (route) => {
+        const response = await route.fetch();
+        const catalog = await response.json();
+        const player = catalog.players.find(({ name }) => name === "Сова");
+        assert(player);
+        player.name = "QA_AlexandriaSchwarzeneggerMaksymilian";
+        await route.fulfill({ response, json: catalog });
+      });
+    }
     const arena = page.locator(".ref-arena");
     let positions;
     async function inspect(scene, root, actions = []) {
@@ -1404,10 +1575,16 @@ async function roundTable(mode) {
       for (const viewport of adapt) {
         await page.setViewportSize(viewport);
         await inspect("speech", arena);
-        if (viewport.width <= 390) {
+        if (viewport.width <= 430 || viewport.width >= 1024) {
           await fit(page, "Продолжить");
           await fit(page, "Закончить речь");
           await fit(page, "Фол");
+          assert(await page.locator("[data-timer]").evaluate((el) => {
+            const bounds = el.getBoundingClientRect();
+            return parseFloat(getComputedStyle(el).fontSize) >= 32 && bounds.left >= 0 && bounds.right <= innerWidth;
+          }), "The timer is clipped or too small to read");
+        }
+        if (viewport.width <= 430) {
           assert(await page.locator(".ref-focus").evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
             "Timer controls clip the current speaker on mobile");
         }

@@ -166,6 +166,17 @@ export async function restoreWithCode(code: string) {
   };
 }
 
+export function mergeRecoveredDraft(stored: LocalDraft | null, remote: LocalDraft): LocalDraft {
+  if (!stored) return remote;
+  const pendingSubmission = stored.outbox && ["draft", "clarify"].includes(remote.status);
+  if (stored.draft.id !== remote.draft.id || stored.synced !== stored.draft.events.length ||
+    remote.revision < stored.revision || (pendingSubmission && remote.revision !== stored.revision)) {
+    throw new Error("conflict");
+  }
+  // A copy read before a queued submission was accepted cannot acknowledge it.
+  return { ...stored, ...remote, outbox: pendingSubmission };
+}
+
 export async function download(draft: Draft) {
   const blob = new Blob([JSON.stringify({ payload: draft, sha256: await checksum(draft) }, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);

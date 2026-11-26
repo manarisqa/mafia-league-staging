@@ -32,7 +32,7 @@ function EveningRow({ locale, e, open }: { locale: Locale; e: HistoryEvening; op
           </span>
           <span className="min-w-0 flex-1">
             <span className="block font-display text-xl font-bold">{t("Игровой вечер №")}{e.number}</span>
-            <span className="mt-1 block text-sm text-muted">
+            <span className="mt-1 block wrap-anywhere text-sm text-muted">
               {e.place} · {t("Играли за столом")} · {e.participants} {plural(e.participants, ["участник", "участника", "участников"].map(t) as [string, string, string])}
             </span>
           </span>
@@ -68,7 +68,7 @@ function EveningRow({ locale, e, open }: { locale: Locale; e: HistoryEvening; op
           {e.games.length === 0 ? (
             <p className="py-4 text-sm text-muted">{t("Завершённых партий в этот вечер нет.")}</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full min-w-[28rem] text-left text-sm">
                 <thead className="text-muted">
                   <tr>
@@ -114,7 +114,7 @@ export default async function HistoryEveningsPage() {
       )}
       <TotalsStrip locale={locale} totals={totals} caption={t("За всё время")} />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <section aria-labelledby="evenings-title">
           <h2 id="evenings-title" className="mb-4 font-display text-2xl font-bold">{t("Игровые вечера")}</h2>
           {evenings.length === 0 ? (

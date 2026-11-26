@@ -32,11 +32,13 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (asset(url)) {
     event.respondWith((async () => {
-      const cache = await caches.open(CACHE);
-      const stored = await cache.match(event.request);
+      const cache = await caches.open(CACHE).catch(() => null);
+      const stored = await cache?.match(event.request).catch(() => null);
       if (stored) return stored;
       const response = await fetch(event.request);
-      if (response.ok) await cache.put(event.request, response.clone());
+      if (response.ok && cache) {
+        await cache.put(event.request, response.clone()).catch(() => undefined);
+      }
       return response;
     })());
   } else if (event.request.mode === "navigate" && url.pathname === SHELL) {

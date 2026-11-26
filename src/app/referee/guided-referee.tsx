@@ -11,7 +11,7 @@ import { canonical } from "@/lib/league/legacy/referee-protocol";
 import { Live, PrivateRoster, RoleCorrection, Sheet, UndoRedo } from "./live";
 import { Setup } from "./setup";
 import {
-  activeKey, catalogKey, clearClocks, cloud, download, get, importFile, isDraftChange, list, newLocal, read,
+  activeKey, catalogKey, clearClocks, cloud, download, get, importFile, isDraftChange, list, mergeRecoveredDraft, newLocal, read,
   reconcileRestarts, recoverProtected, restartLocal, restoreWithCode, save, slotOf, wasCancelled,
   withCloudLock, write, type LocalDraft,
 } from "./local";
@@ -303,8 +303,7 @@ export function GuidedReferee({ adminEvenings }: { adminEvenings?: ReactNode }) 
         const value = await restoreWithCode(restore);
         if (wasCancelled(value.draft.id)) throw new Error("conflict");
         const earlier = get(value.draft.id);
-        if (earlier && (earlier.draft.id !== value.draft.id || earlier.synced !== earlier.draft.events.length)) throw new Error("conflict");
-        await accept({ ...earlier, ...value }, earlier?.serial ?? null, true);
+        await accept(mergeRecoveredDraft(earlier, value), earlier?.serial ?? null, true);
         setRestore("");
         setPanel(null);
       } catch (error) { fail(error, "unavailable"); }

@@ -31,7 +31,7 @@ export default async function PlayersPage() {
         {players.length === 0 ? (
           <p className="text-muted">{t("Игроков пока нет.")}</p>
         ) : (
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {players.map((p) => (
               <li key={p.id}>
                 <Link
@@ -41,7 +41,7 @@ export default async function PlayersPage() {
                   <div className="flex items-center gap-3">
                     <Avatar name={p.name} size={52} />
                     <div className="min-w-0">
-                      <p className="truncate font-display text-lg font-bold">{p.name}</p>
+                      <p className="wrap-anywhere font-display text-lg font-bold">{p.name}</p>
                       <span
                         className={`mt-1 inline-block rounded-full px-2.5 py-0.5 text-xs ${
                           p.status === "club_member"

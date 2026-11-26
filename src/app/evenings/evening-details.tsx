@@ -16,7 +16,7 @@ export function EveningReadiness({ evening, locale }: { evening: NextEvening; lo
     <div className="space-y-1 text-sm text-muted">
       <p><span className="font-medium text-text">{t("Игроки с подтверждённой записью")} · {confirmed}</span>
         {" · "}{t("Для одного стола")} {evening.capacity}</p>
-      <p>{t("Ведущий")}{": "}{evening.hostName ?? t("пока не назначен")}</p>
+      <p className="wrap-anywhere">{t("Ведущий")}{": "}{evening.hostName ?? t("пока не назначен")}</p>
       {ready ? <p className="font-medium text-success">{t("Состав для одной партии собран")}</p> : (
         <p>{missing > 0 && <>{t("Не хватает игроков")} · {missing}</>}
           {missing > 0 && !hasHost && " · "}
@@ -45,7 +45,7 @@ export function EveningDetails({ evening, locale }: { evening: NextEvening; loca
                 ? <time dateTime={evening.startsAt}>{fullDateTime(evening.startsAt, locale)}</time>
                 : <>{t("Начало в")} {evening.time}</>}
             </p>
-            <p className="mt-1 break-words text-muted">{evening.place} · {t("Время Граца")}</p>
+            <p className="mt-1 wrap-anywhere text-muted">{evening.place} · {t("Время Граца")}</p>
             <p className="mt-2 text-sm">
               {t("Плановый формат")} · {t(FORMAT_LABEL[format])}
               {!open && <> · {t(evening.status === "planned" ? "Запись закрыта" : EVENING_STATUS_LABEL[evening.status])}</>}
@@ -71,7 +71,7 @@ export function EveningDetails({ evening, locale }: { evening: NextEvening; loca
                 <li key={id}>
                   <Link href={evening.id ? `/players/${id}` : "/players"} className="flex min-h-11 items-center gap-2 text-sm hover:text-accent-text">
                     <Avatar name={name} size={36} />
-                    <span className="min-w-0 break-words">{name}</span>
+                    <span className="min-w-0 wrap-anywhere">{name}</span>
                   </Link>
                 </li>
               ))}

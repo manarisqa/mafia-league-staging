@@ -4,6 +4,8 @@ import "./database.test";
 import "./rating.test";
 import "./referee.test";
 import "./referee-layout.test";
+import "./referee-recovery.test";
+import "./referee-worker.test";
 import "./identity.test";
 
 import "./guided-referee.test";
