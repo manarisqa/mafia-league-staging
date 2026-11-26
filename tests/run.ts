@@ -3,4 +3,15 @@
 import "./database.test";
 import "./rating.test";
 import "./referee.test";
+import "./referee-layout.test";
+import "./referee-recovery.test";
+import "./referee-worker.test";
 import "./identity.test";
+
+import "./guided-referee.test";
+import "./guided-database.test";
+import "./club-evenings.test";
+import "./seasons.test";
+import "./player-insights.test";
+import "./communications.test";
+import "./admin-analytics.test";

@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 
 /**
  * Клиент Supabase от имени вошедшего пользователя (читает сессию из cookie).
@@ -8,6 +9,7 @@ import { cookies } from "next/headers";
  * попали бы в общий кэш и стали видны всем посетителям.
  */
 export async function createServerSupabase() {
+  await connection();
   const cookieStore = await cookies();
 
   return createServerClient(

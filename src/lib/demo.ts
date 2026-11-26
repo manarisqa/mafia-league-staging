@@ -6,7 +6,7 @@ export const DEMO_EVENING = {
   month: "марта",
   time: "19:00",
   place: "Грац · адрес уточняется",
-  format: "Классика 10",
+  format: "Классика",
   capacity: 10,
   signedUp: 6,
   hostConfirmed: true,
@@ -15,13 +15,13 @@ export const DEMO_EVENING = {
 };
 
 export const DEMO_FORMATS = [
-  { name: "Классика 10", players: "10 игроков + ведущий" },
-  { name: "Short9", players: "9 игроков + ведущий" },
+  { name: "Классика", players: "10 игроков + ведущий" },
+  { name: "Девятка", players: "9 игроков + ведущий" },
 ];
 
 export const DEMO_RECENT_GAMES = [
-  { date: "8 марта", format: "Short9", status: "Игра завершена" },
-  { date: "1 марта", format: "Классика 10", status: "Игра завершена" },
+  { date: "8 марта", format: "Девятка", status: "Игра завершена" },
+  { date: "1 марта", format: "Классика", status: "Игра завершена" },
 ];
 
 export const DEMO_TOP_PLAYERS = [

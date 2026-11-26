@@ -1,9 +1,12 @@
+import { getLocale } from "@/lib/i18n/server";
+import { translate } from "@/lib/i18n/messages";
 import { Text } from "@/components/locale-provider";
 import Link from "next/link";
 import { Logo } from "@/components/logo";
 import { NAV_ITEMS } from "@/lib/nav";
 
-export function Footer() {
+export async function Footer() {
+  const locale = await getLocale();
   return (
     <footer className="border-t border-border bg-surface">
       <div className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 md:flex-row md:items-start md:justify-between">
@@ -13,9 +16,9 @@ export function Footer() {
             <Text id="footer" />
           </p>
         </div>
-        <nav aria-label="Навигация в подвале">
+        <nav aria-label={translate(locale, "footerNavigation")}>
           <ul className="grid grid-cols-2 gap-x-10 gap-y-1 text-sm text-muted">
-            {NAV_ITEMS.map(({ href, key }) => (
+            {([...NAV_ITEMS, { href: "/history", key: "history" }, { href: "/referee", key: "hostGame" }] as const).map(({ href, key }) => (
               <li key={href}>
                 <Link href={href} className="inline-flex min-h-11 items-center hover:text-text">
                   <Text id={key} />

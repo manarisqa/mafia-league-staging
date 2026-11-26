@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createCurrentDraft, append, derive, exportProtocol, importProtocol } from "../src/lib/referee/engine";
+import { createCurrentDraft, append, checksum, derive, exportProtocol, importProtocol, validateDraft } from "../src/lib/referee/engine";
 import { prepareRefereeResult } from "../src/lib/referee/bridge";
 import type { Role } from "../src/lib/league/legacy/model";
 
@@ -12,6 +12,19 @@ function setup(format: "classic10" | "short9" = "classic10") {
   d.seats.forEach((_, i) => { d = append(d, { type: "role_recorded", seat: i + 1, role: (["don", "mafia", "mafia", "sheriff"][i] ?? "civilian") as Role }); });
   return d;
 }
+
+test("legacy import and export preserve checksums and accepted timestamp spellings", async () => {
+  const draft = setup("short9");
+  draft.gameStartAt = "2026-10-30T19:00+0100";
+  draft.events[0].observedAt = "2026-10-30T18:00Z";
+  const sha256 = await checksum(draft);
+  assert.deepEqual(validateDraft(draft), draft);
+  assert.deepEqual(await importProtocol(JSON.stringify({ payload: draft, sha256 })), draft);
+  assert.deepEqual(JSON.parse(await exportProtocol(draft)), { payload: draft, sha256 });
+  await assert.rejects(importProtocol(JSON.stringify({ payload: draft, sha256: "0".repeat(64) })), /Контрольная сумма/);
+  assert.throws(() => validateDraft({ ...draft, clientRevision: draft.clientRevision + 1 }), /ревизия/i);
+  assert.throws(() => validateDraft({ ...draft, gameStartAt: "2026-10-30T19:00:00+24:59" }), /datetime/i);
+});
 test("current Short9 keeps edition-specific N1 no-shot rule and exact round trip", async () => {
   let d = setup("short9"); d = append(d, { type: "phase_started", next: "night" });
   const checks = () => {

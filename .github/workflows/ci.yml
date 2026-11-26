@@ -19,3 +19,35 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+  release-readiness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: bash tests/browser/local-stack.sh start >> "$GITHUB_ENV"
+      - run: npm run build
+      - name: Club flows, referee restart and restore on synthetic data
+        run: |
+          node tests/browser/local-gateway.mjs &
+          gateway=$!
+          npm start -- --hostname 127.0.0.1 --port 55420 &
+          app=$!
+          trap 'kill "$gateway" "$app" 2>/dev/null || true' EXIT
+          curl --fail --silent --output /dev/null --retry 20 --retry-delay 1 --retry-connrefused http://127.0.0.1:55420/referee
+          export CHROMIUM_PATH="$(node -p 'require("playwright").chromium.executablePath()')"
+          QA_RESTART_ONLY=1 npm run test:browser
+          bash tests/browser/backup-roundtrip.sh
+          export QA_APP_URL=http://127.0.0.1:55420
+          node tests/browser/club.mjs
+          node tests/browser/player-insights.mjs
+          node tests/browser/seasons.mjs
+          node tests/browser/communications.mjs
+          node tests/browser/admin-analytics.mjs
+      - if: always()
+        run: bash tests/browser/local-stack.sh stop

@@ -9,17 +9,18 @@ import { isValidNickname } from "@/lib/nickname";
 const input =
   "h-12 w-full rounded-control border border-border bg-elevated px-4 text-text placeholder:text-muted focus:border-accent-text focus:outline-none";
 
-export function RegisterForm() {
+export function RegisterForm({ next }: { next?: string }) {
   const [state, action, pending] = useActionState(signUp, {});
   const { t } = useTranslation();
 
   return (
-    <form onSubmit={keepFormSubmit(action)} className="space-y-4">
+    <form action={action} onSubmit={keepFormSubmit(action)} className="space-y-4">
+      {next && <input type="hidden" name="next" value={next} />}
       <div>
         <label htmlFor="nickname" className="mb-1.5 block text-sm text-muted">
           {t("nickname")}
         </label>
-        <input id="nickname" name="nickname" autoComplete="nickname" required maxLength={40} className={input}
+        <input id="nickname" name="nickname" autoComplete="nickname" required maxLength={80} className={input}
           aria-describedby="nickname-help"
           onChange={(event) => event.currentTarget.setCustomValidity(isValidNickname(event.currentTarget.value) ? "" : t("nicknameInvalid"))} />
         <p id="nickname-help" className="mt-2 text-xs text-muted">{t("nicknameHelp")}</p>

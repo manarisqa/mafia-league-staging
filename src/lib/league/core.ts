@@ -1,19 +1,20 @@
 import { z } from "zod";
+import { protocolTimestamp } from "../protocol-timestamp";
 import { eligibility, rate, MODEL, type Game, type Role, type State } from "./legacy/model";
 import { resultFor, sideOf } from "../rating";
 
-const id = z.string().uuid();
+const id = z.guid();
 const revision = z.number().int().nonnegative().safe();
 const role = z.enum(["civilian", "sheriff", "don", "mafia"]);
 export const SnapshotSchema = z.object({
   revision,
   players: z.array(z.object({ id, display_name: z.string(), status: z.enum(["club_member", "newbie"]), joined_on: z.string().nullable(), revision })),
   seasons: z.array(z.object({ id, name: z.string(), starts_on: z.string(), ends_on: z.string().nullable() })),
-  evenings: z.array(z.object({ id, starts_at: z.string().datetime({ offset: true }), place: z.string(), capacity: z.number(), status: z.enum(["planned", "finished", "cancelled"]), season_id: id.nullable(), host_player_id: id.nullable(), revision })),
+  evenings: z.array(z.object({ id, starts_at: protocolTimestamp, place: z.string(), capacity: z.number(), status: z.enum(["planned", "finished", "cancelled"]), season_id: id.nullable(), host_player_id: id.nullable(), revision })),
   games: z.array(z.object({
     id, evening_id: id, game_no: z.number().int().positive(), format: z.enum(["classic10", "short9"]),
     status: z.enum(["in_progress", "finished"]), winner: z.enum(["red", "black", "draw"]).nullable(),
-    host_player_id: id.nullable(), played_at: z.string().datetime({ offset: true }), finished_at: z.string().nullable(),
+    host_player_id: id.nullable(), played_at: protocolTimestamp, finished_at: z.string().nullable(),
     result_type: z.enum(["normal", "technical"]), result_reason: z.string(), voided: z.boolean(),
     model_version: z.string(), rules_version: z.string(), revision,
     seats: z.array(z.object({ seat: z.number().int(), player_id: id, role, fouls: z.number().int(), removed: z.boolean() })),

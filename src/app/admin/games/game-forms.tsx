@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "@/components/locale-provider";
+import { siteText } from "@/lib/i18n/site";
+
 import { useActionState, useState, type FormEvent } from "react";
 import { createGame, deleteGame, reopenGame, saveGame } from "@/app/admin/games/actions";
 import type { AdminGame } from "@/lib/admin-data";
@@ -16,30 +19,32 @@ const button =
 type PlayerOption = { id: string; name: string };
 
 function Message({ state }: { state: { ok?: boolean; message?: string; details?: string } }) {
+  const { locale } = useTranslation();
+  const t = (label: string) => siteText(locale, label);
   if (!state.message) return null;
   return (
     <div role={state.ok ? "status" : "alert"} className="mt-3 text-sm">
-      <p className={state.ok ? "text-success" : "text-error"}>{state.message}</p>
-      {state.details && <p className="mt-1 text-muted">Сервер получил роли по местам: {state.details}</p>}
+      <p className={state.ok ? "text-success" : "text-error"}>{t(state.message)}</p>
+      {state.details && <p className="mt-1 text-muted">{t("Сервер получил роли по местам:")} {state.details}</p>}
     </div>
   );
 }
 
 export function AddGameForm({ eveningId }: { eveningId: string }) {
+  const { locale } = useTranslation();
+  const t = (label: string) => siteText(locale, label);
   const [state, action, pending] = useActionState(createGame, {});
   return (
     <form onSubmit={keepFormSubmit(action)}>
       <input type="hidden" name="evening_id" value={eveningId} />
       <div className="flex flex-wrap items-end gap-3">
-        <label className="block text-sm text-muted">
-          Формат новой партии
-          <select name="format" defaultValue="classic10" className={`mt-1 ${field} w-56`}>
-            <option value="classic10">{FORMAT_LABEL.classic10} (10 игроков)</option>
-            <option value="short9">{FORMAT_LABEL.short9} (9 игроков)</option>
+        <label className="block text-sm text-muted">{t("Формат новой партии")}<select name="format" defaultValue="classic10" className={`mt-1 ${field} w-56`}>
+            <option value="classic10">{t(FORMAT_LABEL.classic10)} {t("(10 игроков)")}</option>
+            <option value="short9">{t(FORMAT_LABEL.short9)} {t("(9 игроков)")}</option>
           </select>
         </label>
         <button type="submit" disabled={pending} className={button}>
-          {pending ? "…" : "Добавить партию"}
+          {pending ? "…" : t("Добавить партию")}
         </button>
       </div>
       <Message state={state} />
@@ -56,6 +61,8 @@ export function GameEditor({
   players: PlayerOption[];
   signedIds: string[];
 }) {
+  const { locale } = useTranslation();
+  const t = (label: string) => siteText(locale, label);
   const [state, action, pending] = useActionState(saveGame, {});
   const total = game.format === "classic10" ? 10 : 9;
   const bySeat = new Map(game.seats.map((s) => [s.seat, s]));
@@ -83,9 +90,9 @@ export function GameEditor({
 
   const playerOptions = (
     <>
-      <option value="">— свободно —</option>
+      <option value="">{t("— свободно —")}</option>
       {signedPlayers.length > 0 && (
-        <optgroup label="Записались на вечер">
+        <optgroup label={t("Записались на вечер")}>
           {signedPlayers.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -93,7 +100,7 @@ export function GameEditor({
           ))}
         </optgroup>
       )}
-      <optgroup label={signedPlayers.length > 0 ? "Остальные игроки" : "Игроки"}>
+      <optgroup label={signedPlayers.length > 0 ? t("Остальные игроки") : t("Игроки")}>
         {others.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -108,10 +115,8 @@ export function GameEditor({
       <input type="hidden" name="game_id" value={game.id} />
       <RevisionField initial={game.revision} state={state} />
 
-      <label className="block text-sm text-muted">
-        Ведущий (не играет за столом)
-        <select name="host_player_id" defaultValue={game.host_player_id ?? ""} className={`mt-1 ${field} sm:max-w-sm`}>
-          <option value="">Не назначен</option>
+      <label className="block text-sm text-muted">{t("Ведущий (не играет за столом)")}<select name="host_player_id" defaultValue={game.host_player_id ?? ""} className={`mt-1 ${field} sm:max-w-sm`}>
+          <option value="">{t("Не назначен")}</option>
           {players.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -121,13 +126,11 @@ export function GameEditor({
       </label>
 
       <div>
-        <h3 className="mb-2 font-medium">Места за столом</h3>
+        <h3 className="mb-2 font-medium">{t("Места за столом")}</h3>
         <p className="mb-3 text-sm text-muted">
           {game.format === "classic10"
-            ? "Классика 10: 6 мирных, 1 шериф, 1 дон, 2 мафии."
-            : "Short9: 5 мирных, 1 шериф, 1 дон, 2 мафии."}{" "}
-          Для черновика можно заполнить не все места.
-        </p>
+            ? t("Классика 10: 6 мирных, 1 шериф, 1 дон, 2 мафии.")
+            : t("Short9: 5 мирных, 1 шериф, 1 дон, 2 мафии.")}{" "}{t("Для черновика можно заполнить не все места.")}</p>
         <ul className="grid gap-3 sm:grid-cols-2">
           {Array.from({ length: total }, (_, i) => i + 1).map((seat) => {
             const cur = bySeat.get(seat);
@@ -137,7 +140,7 @@ export function GameEditor({
                 <select
                   name={`seat_${seat}_player`}
                   defaultValue={cur?.player_id ?? ""}
-                  aria-label={`Место ${seat}: игрок`}
+                  aria-label={`${t("Место")} ${seat}: ${t("Игрок")}`}
                   className={field}
                 >
                   {playerOptions}
@@ -145,20 +148,20 @@ export function GameEditor({
                 <select
                   name={`seat_${seat}_role`}
                   defaultValue={cur?.role ?? "civilian"}
-                  aria-label={`Место ${seat}: роль`}
+                  aria-label={`${t("Место")} ${seat}: ${t("Роль")}`}
                   className={field}
                 >
                   {Object.entries(ROLE_LABEL).map(([value, label]) => (
                     <option key={value} value={value}>
-                      {label}
+                      {t(label)}
                     </option>
                   ))}
                 </select>
                 <div className="col-span-3 flex flex-wrap items-center gap-4 pl-10 text-sm text-muted">
-                  <label>Фолы <input type="number" name={`seat_${seat}_fouls`} min={0} max={20}
+                  <label>{t("Фолы")} <input type="number" name={`seat_${seat}_fouls`} min={0} max={20}
                     defaultValue={cur?.fouls ?? 0} className={`${field} ml-2 w-20`} /></label>
                   <label className="flex min-h-11 items-center gap-2"><input type="checkbox"
-                    name={`seat_${seat}_removed`} defaultChecked={cur?.removed ?? false} />Удалён</label>
+                    name={`seat_${seat}_removed`} defaultChecked={cur?.removed ?? false} />{t("Удалён")}</label>
                 </div>
               </li>
             );
@@ -166,22 +169,18 @@ export function GameEditor({
         </ul>
       </div>
 
-      <label className="block text-sm text-muted">Тип результата
-        <select name="result_type" defaultValue={game.result_type} className={`mt-1 ${field} sm:max-w-sm`}>
-          <option value="normal">Обычный</option><option value="technical">Технический (без League Skill)</option>
+      <label className="block text-sm text-muted">{t("Тип результата")}<select name="result_type" defaultValue={game.result_type} className={`mt-1 ${field} sm:max-w-sm`}>
+          <option value="normal">{t("Обычный")}</option><option value="technical">{t("Технический (без League Skill)")}</option>
         </select>
       </label>
-      <label className="block text-sm text-muted">Причина технического результата или удаления
-        <textarea name="result_reason" defaultValue={game.result_reason} maxLength={1000}
+      <label className="block text-sm text-muted">{t("Причина технического результата или удаления")}<textarea name="result_reason" defaultValue={game.result_reason} maxLength={1000}
           className="mt-1 w-full rounded-control border border-border bg-elevated p-3 text-text" />
       </label>
-      <label className="block text-sm text-muted">
-        Победитель (нужен, чтобы завершить партию)
-        <select name="winner" defaultValue={game.winner ?? ""} className={`mt-1 ${field} sm:max-w-sm`}>
-          <option value="">Пока не выбран</option>
+      <label className="block text-sm text-muted">{t("Победитель (нужен, чтобы завершить партию)")}<select name="winner" defaultValue={game.winner ?? ""} className={`mt-1 ${field} sm:max-w-sm`}>
+          <option value="">{t("Пока не выбран")}</option>
           {Object.entries(WINNER_LABEL).map(([value, label]) => (
             <option key={value} value={value}>
-              {label}
+              {t(label)}
             </option>
           ))}
         </select>
@@ -199,13 +198,13 @@ export function GameEditor({
                   : "border-border text-muted";
             return (
               <li key={role} className={`rounded-full border px-3 py-1 ${tone}`}>
-                {ROLE_LABEL[role]}: {have} из {want[role]}
+                {t(ROLE_LABEL[role])}: {have} {t("из")} {want[role]}
               </li>
             );
           })}
         </ul>
         <p className={`mt-2 text-sm ${problem ? "text-muted" : "text-success"}`}>
-          {problem ? `Чтобы завершить: ${problem.toLowerCase()}.` : "Всё готово, можно завершать партию."}
+          {problem ? `${t("Чтобы завершить")}: ${t(problem).toLowerCase()}.` : t("Всё готово, можно завершать партию.")}
         </p>
       </div>
 
@@ -216,18 +215,14 @@ export function GameEditor({
           value="save"
           disabled={pending}
           className="h-11 rounded-control border border-border px-5 text-sm font-medium hover:border-accent-text disabled:opacity-60"
-        >
-          Сохранить черновик
-        </button>
+        >{t("Сохранить черновик")}</button>
         <button
           type="submit"
           name="intent"
           value="finish"
           disabled={pending || problem !== null}
           className={button}
-        >
-          Завершить партию
-        </button>
+        >{t("Завершить партию")}</button>
       </div>
       <Message state={state} />
     </form>
@@ -235,12 +230,14 @@ export function GameEditor({
 }
 
 export function ReopenGameButton({ gameId, revision }: { gameId: string; revision: number }) {
+  const { locale } = useTranslation();
+  const t = (label: string) => siteText(locale, label);
   const [state, action, pending] = useActionState(reopenGame, {});
   return (
     <form
       action={action}
       onSubmit={(e) => {
-        if (!confirm("Вернуть партию в черновик? Она пропадёт из рейтинга, пока вы её снова не завершите.")) {
+        if (!confirm(t("Вернуть партию в черновик? Она пропадёт из рейтинга, пока вы её снова не завершите."))) {
           e.preventDefault();
         }
       }}
@@ -251,31 +248,29 @@ export function ReopenGameButton({ gameId, revision }: { gameId: string; revisio
         type="submit"
         disabled={pending}
         className="h-11 rounded-control border border-border px-5 text-sm hover:border-accent-text disabled:opacity-60"
-      >
-        Исправить: вернуть в черновик
-      </button>
+      >{t("Исправить: вернуть в черновик")}</button>
       <Message state={state} />
     </form>
   );
 }
 
 export function DeleteGameButton({ gameId, revision }: { gameId: string; revision: number }) {
+  const { locale } = useTranslation();
+  const t = (label: string) => siteText(locale, label);
   const [state, action, pending] = useActionState(deleteGame, {});
   return (
     <form
       action={action}
       onSubmit={(e) => {
-        if (!confirm("Удалить этот черновик партии?")) e.preventDefault();
+        if (!confirm(t("Удалить этот черновик партии?"))) e.preventDefault();
       }}
     >
       <input type="hidden" name="game_id" value={gameId} />
       <input type="hidden" name="revision" value={revision} />
-      <button type="submit" disabled={pending} className="min-h-11 text-sm text-error hover:underline disabled:opacity-60">
-        Удалить партию
-      </button>
+      <button type="submit" disabled={pending} className="min-h-11 text-sm text-error hover:underline disabled:opacity-60">{t("Удалить партию")}</button>
       {state.message && !state.ok && (
         <p role="alert" className="text-sm text-error">
-          {state.message}
+          {t(state.message)}
         </p>
       )}
     </form>

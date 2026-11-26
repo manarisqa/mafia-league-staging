@@ -1,9 +1,11 @@
+import type { Locale } from "./i18n/messages";
+
 const TZ = "Europe/Vienna";
 
 /** Разбирает дату вечера для показа: «Сб», «15», «марта», «19:00». */
-export function eveningParts(iso: string) {
+export function eveningParts(iso: string, locale: Locale = "ru") {
   const d = new Date(iso);
-  const date = new Intl.DateTimeFormat("ru-RU", {
+  const date = new Intl.DateTimeFormat(locale, {
     timeZone: TZ,
     weekday: "short",
     day: "numeric",
@@ -15,7 +17,7 @@ export function eveningParts(iso: string) {
     weekday: weekday.charAt(0).toUpperCase() + weekday.slice(1),
     day: get("day"),
     month: get("month"),
-    time: new Intl.DateTimeFormat("ru-RU", {
+    time: new Intl.DateTimeFormat(locale, {
       timeZone: TZ,
       hour: "2-digit",
       minute: "2-digit",
@@ -24,8 +26,8 @@ export function eveningParts(iso: string) {
 }
 
 /** «8 марта» */
-export function shortDate(iso: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+export function shortDate(iso: string, locale: Locale = "ru") {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: TZ,
     day: "numeric",
     month: "long",
@@ -33,8 +35,8 @@ export function shortDate(iso: string) {
 }
 
 export const FORMAT_LABEL = {
-  classic10: "Классика 10",
-  short9: "Short9",
+  classic10: "Классика",
+  short9: "Девятка",
 } as const;
 
 export const STATUS_LABEL = {
@@ -98,8 +100,8 @@ export const SIGNUP_STATUS_LABEL = {
 } as const;
 
 /** «14 ноября 2026, 19:00» — для админки. */
-export function fullDateTime(iso: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+export function fullDateTime(iso: string, locale: Locale = "ru") {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: TZ,
     day: "numeric",
     month: "long",
@@ -128,8 +130,8 @@ export const GAME_STATUS_LABEL = {
 } as const;
 
 /** «14 ноября 2026» */
-export function longDate(iso: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
+export function longDate(iso: string, locale: Locale = "ru") {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: TZ,
     day: "numeric",
     month: "long",
@@ -138,10 +140,10 @@ export function longDate(iso: string) {
 }
 
 /** «сент. 2026» — для дат сезона (в базе это день без времени). */
-export function monthYear(day: string) {
-  return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", month: "short", year: "numeric" })
+export function monthYear(day: string, locale: Locale = "ru") {
+  return new Intl.DateTimeFormat(locale, { timeZone: "UTC", month: "short", year: "numeric" })
     .format(new Date(`${day}T00:00:00Z`))
-    .replace(" г.", "");
+    .replace(/ [гр]\.$/, "");
 }
 
 /** Склонение: plural(3, ["партия", "партии", "партий"]) → «партии». */
@@ -161,8 +163,8 @@ export const WINNER_SHORT = {
 } as const;
 
 /** «сентября 2026» — для «В клубе с …» (в базе это день без времени). */
-export function sinceMonth(day: string) {
-  const parts = new Intl.DateTimeFormat("ru-RU", {
+export function sinceMonth(day: string, locale: Locale = "ru") {
+  const parts = new Intl.DateTimeFormat(locale, {
     timeZone: "UTC",
     day: "numeric",
     month: "long",

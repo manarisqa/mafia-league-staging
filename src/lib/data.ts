@@ -1,20 +1,23 @@
+import type { Locale } from "@/lib/i18n/messages";
 import { cacheLife, cacheTag } from "next/cache";
+import { connection } from "next/server";
 import { DEMO_EVENING, DEMO_RECENT_GAMES, DEMO_TOP_PLAYERS, DEMO_LEAGUE_STATS } from "@/lib/demo";
 import { FORMAT_LABEL, eveningParts, shortDate } from "@/lib/format";
 import { EMPTY_SNAPSHOT, SnapshotSchema, projectLeague, profileStats, type PlayerStats, type SideStats } from "@/lib/league/core";
+import { eveningReadiness } from "@/lib/evening-roster";
 import type { Role, Winner } from "@/lib/rating";
-import { getPublicClient } from "@/lib/supabase";
+import { getPublicClient, hasSupabaseConfig } from "@/lib/supabase";
 export type { SideStats } from "@/lib/league/core";
 
 export function showDemoBadge() {
-  return !getPublicClient() || process.env.NEXT_PUBLIC_SHOW_DEMO_BADGE === "true";
+  return !hasSupabaseConfig() || process.env.NEXT_PUBLIC_SHOW_DEMO_BADGE === "true";
 }
 export type Player = { id: string; name: string; status: "club_member" | "newbie" };
 export type RatedPlayer = Player & PlayerStats;
 
 /** Only anonymous credentials enter the shared cache. SQL returns one public
  * MVCC snapshot: no private notes, account IDs or unfinished roles. */
-async function getLeague() {
+export async function getLeague() {
   "use cache";
   cacheLife("minutes"); cacheTag("club");
   const db = getPublicClient();
@@ -29,34 +32,72 @@ export async function getRating(): Promise<RatedPlayer[]> {
     .sort((a, b) => b.rating - a.rating || b.skillGames - a.skillGames || a.name.localeCompare(b.name, "ru"));
 }
 export type NextEvening = {
-  id: string | null; weekday: string; day: string; month: string; time: string; place: string;
-  capacity: number; signedUp: number; hostName: string | null; participants: string[];
+  id: string | null; startsAt: string | null; weekday: string; day: string; month: string; time: string; place: string;
+  capacity: number; status: "planned" | "finished" | "cancelled"; registrationOpen: boolean; hostName: string | null;
+  participants: { id: string; name: string }[];
+  readiness: ReturnType<typeof eveningReadiness>;
+  games: HistoryGame[];
 };
-export async function getNextEvening(): Promise<NextEvening | null> {
+
+async function announcedRoster(id: string) {
   "use cache";
   cacheLife("minutes"); cacheTag("club");
-  const db = getPublicClient();
-  if (!db) return { ...DEMO_EVENING, id: null, hostName: "Игрок 11" };
-  const { snapshot } = await getLeague();
-  const ev = snapshot.evenings.filter((e) => e.status === "planned" && Date.parse(e.starts_at) > Date.now())
-    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
-  if (!ev) return null;
-  const { data, error } = await db.from("evening_participants").select("player_id").eq("evening_id", ev.id);
+  const { data, error } = await getPublicClient()!.from("evening_participants").select("player_id").eq("evening_id", id);
   if (error) throw new Error(`Не удалось загрузить участников: ${error.message}`);
-  const ids = new Set((data ?? []).map((p) => p.player_id));
-  const participants = snapshot.players.filter((p) => ids.has(p.id)).map((p) => p.display_name);
-  return { id: ev.id, ...eveningParts(ev.starts_at), place: ev.place, capacity: ev.capacity,
-    signedUp: participants.length, participants,
-    hostName: snapshot.players.find((p) => p.id === ev.host_player_id)?.display_name ?? null };
+  return new Set((data ?? []).map((p) => p.player_id));
 }
+
+type PublicEveningRow = Awaited<ReturnType<typeof getLeague>>["snapshot"]["evenings"][number];
+
+async function presentEvening(ev: PublicEveningRow, locale: Locale, open: boolean): Promise<NextEvening> {
+  const [{ snapshot, games, state }, ids] = await Promise.all([
+    getLeague(),
+    open ? announcedRoster(ev.id) : new Set<string>(),
+  ]);
+  const participants = snapshot.players.filter((p) => ids.has(p.id) && p.id !== ev.host_player_id)
+    .map((p) => ({ id: p.id, name: p.display_name }));
+  const reasons = new Map(state.games.map((g) => [g.id, g.eligibilityReason]));
+  return {
+    id: ev.id, startsAt: ev.starts_at, ...eveningParts(ev.starts_at, locale), place: ev.place,
+    capacity: ev.capacity, status: ev.status, registrationOpen: open, participants,
+    readiness: eveningReadiness(ev.capacity, ev.host_player_id, participants.map((p) => p.id)),
+    hostName: snapshot.players.find((p) => p.id === ev.host_player_id)?.display_name ?? null,
+    games: games.filter((g) => g.evening_id === ev.id).sort((a, b) => a.game_no - b.game_no).map((g) => ({
+      id: g.id, no: g.game_no, format: g.format, winner: g.winner!, players: g.seats.length,
+      playedAt: g.played_at, skillReason: reasons.get(g.id) ?? "",
+    })),
+  };
+}
+
+export async function getNextEvening(locale: Locale = "ru"): Promise<NextEvening | null> {
+  if (!hasSupabaseConfig()) return {
+    ...DEMO_EVENING, id: null, startsAt: null, status: "planned", registrationOpen: true, hostName: "Игрок 11", games: [],
+    readiness: eveningReadiness(DEMO_EVENING.capacity, "host", DEMO_EVENING.participants),
+    participants: DEMO_EVENING.participants.map((name) => ({ id: name, name })),
+  };
+  await connection();
+  const { snapshot } = await getLeague();
+  const now = Date.now();
+  const ev = snapshot.evenings.filter((e) => e.status === "planned" && Date.parse(e.starts_at) > now)
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.id.localeCompare(b.id))[0];
+  return ev ? presentEvening(ev, locale, true) : null;
+}
+
+export async function getPublicEvening(id: string, locale: Locale): Promise<NextEvening | null> {
+  await connection();
+  const { snapshot } = await getLeague();
+  const ev = snapshot.evenings.find((e) => e.id === id);
+  return ev ? presentEvening(ev, locale, ev.status === "planned" && Date.parse(ev.starts_at) > Date.now()) : null;
+}
+
 export type RecentGame = { id: string; date: string; format: string; status: string };
-export async function getRecentGames(limit = 3): Promise<RecentGame[]> {
-  if (!getPublicClient()) return DEMO_RECENT_GAMES.slice(0, limit).map((g, i) => ({ id: String(i), ...g }));
+export async function getRecentGames(limit = 3, locale: Locale = "ru"): Promise<RecentGame[]> {
+  if (!hasSupabaseConfig()) return DEMO_RECENT_GAMES.slice(0, limit).map((g, i) => ({ id: String(i), ...g }));
   const { games } = await getLeague();
-  return [...games].reverse().slice(0, limit).map((g) => ({ id: g.id, date: shortDate(g.played_at), format: FORMAT_LABEL[g.format], status: "Игра завершена" }));
+  return [...games].reverse().slice(0, limit).map((g) => ({ id: g.id, date: shortDate(g.played_at, locale), format: FORMAT_LABEL[g.format], status: "Игра завершена" }));
 }
 export async function getLeagueStats(): Promise<{ value: string; label: string }[]> {
-  if (!getPublicClient()) return DEMO_LEAGUE_STATS;
+  if (!hasSupabaseConfig()) return DEMO_LEAGUE_STATS;
   const { snapshot, games } = await getLeague();
   return [
     { value: String(snapshot.players.length), label: "Игроков" },
@@ -65,7 +106,7 @@ export async function getLeagueStats(): Promise<{ value: string; label: string }
   ];
 }
 export async function getTopPlayers(limit = 3): Promise<{ place: number; name: string; rating: number; provisional?: boolean }[]> {
-  if (!getPublicClient()) return DEMO_TOP_PLAYERS;
+  if (!hasSupabaseConfig()) return DEMO_TOP_PLAYERS;
   return (await getRating()).filter((p) => p.skillGames > 0).slice(0, limit)
     .map((p, i) => ({ place: i + 1, name: p.name, rating: p.rating, provisional: p.provisional }));
 }
@@ -82,11 +123,17 @@ export async function getHistory(): Promise<{ evenings: HistoryEvening[]; season
   const league = await getLeague();
   const { snapshot, games } = league;
   const ids = new Map<string, Set<string>>();
+  const byEvening = new Map<string, typeof games>();
+  for (const game of games) {
+    const group = byEvening.get(game.evening_id);
+    if (group) group.push(game);
+    else byEvening.set(game.evening_id, [game]);
+  }
   const reasons = new Map(league.state.games.map((g) => [g.id, g.eligibilityReason]));
-  const evenings = snapshot.evenings.filter((e) => e.status !== "cancelled" && (e.status === "finished" || games.some((g) => g.evening_id === e.id)))
+  const evenings = snapshot.evenings.filter((e) => e.status !== "cancelled" && (e.status === "finished" || byEvening.has(e.id)))
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.id.localeCompare(b.id))
     .map((e, i) => {
-      const played = games.filter((g) => g.evening_id === e.id).sort((a, b) => a.game_no - b.game_no);
+      const played = (byEvening.get(e.id) ?? []).sort((a, b) => a.game_no - b.game_no);
       const players = new Set(played.flatMap((g) => g.seats.map((p) => p.player_id))); ids.set(e.id, players);
       return { id: e.id, number: i + 1, startsAt: e.starts_at, place: e.place, seasonId: e.season_id, participants: players.size,
         games: played.map((g) => ({ id: g.id, no: g.game_no, format: g.format, winner: g.winner!, players: g.seats.length, playedAt: g.played_at, skillReason: reasons.get(g.id) ?? "" })) };

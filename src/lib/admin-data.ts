@@ -53,13 +53,13 @@ export type AdminEvening = {
 export async function adminEvenings(db: SupabaseClient) {
   const { data, error } = await db
     .from("evenings")
-    .select("id, starts_at, place, capacity, status, host_player_id, revision, season_id, evening_signups(status)")
+    .select("id, starts_at, place, capacity, status, host_player_id, revision, season_id, evening_signups(status,player_id)")
     .order("starts_at", { ascending: false });
   if (error) throw new Error(`Не удалось загрузить вечера: ${error.message}`);
   return data.map((e) => ({
     ...(e as unknown as AdminEvening),
     note: null,
-    signups: (e.evening_signups as { status: string }[] | null)?.filter((s) => s.status === "going" || s.status === "late").length ?? 0,
+    signups: (e.evening_signups as { status: string; player_id: string }[] | null)?.filter((s) => (s.status === "going" || s.status === "late") && s.player_id !== e.host_player_id).length ?? 0,
   }));
 }
 
@@ -85,13 +85,13 @@ export type AdminSignup = {
 export async function adminSignups(db: SupabaseClient, eveningId: string): Promise<AdminSignup[]> {
   const { data, error } = await db
     .from("evening_signups")
-    .select("player_id, status, revision, players(display_name)")
+    .select("player_id, status, revision, players(display_name,nickname)")
     .eq("evening_id", eveningId);
   if (error) throw new Error(`Не удалось загрузить записи: ${error.message}`);
   return data
     .map((s) => {
       const p = Array.isArray(s.players) ? s.players[0] : s.players;
-      return { player_id: s.player_id, revision: Number(s.revision), status: s.status, name: p?.display_name ?? "—" } as AdminSignup;
+      return { player_id: s.player_id, revision: Number(s.revision), status: s.status, name: p?.nickname?.trim() || p?.display_name || "—" } as AdminSignup;
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }
@@ -157,4 +157,23 @@ export async function adminSeasons(db: SupabaseClient) {
   const { data, error } = await db.from("seasons").select("id, name").order("starts_on", { ascending: false });
   if (error) throw new Error("Не удалось загрузить сезоны");
   return data;
+}
+
+export async function adminRelevantEvening(db: SupabaseClient) {
+  const earliest = new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString();
+  const { data } = await db.from("evenings").select("id,place,starts_at").eq("status", "planned")
+    .gte("starts_at", earliest).order("starts_at").limit(1).maybeSingle();
+  return data;
+}
+
+export async function adminAttendance(db: SupabaseClient, eveningId: string) {
+  const { data, error } = await db.from("evening_attendance_logs")
+    .select("revision,recorded_at,evening_attendees(player_id)")
+    .eq("evening_id", eveningId).maybeSingle();
+  if (error?.code === "PGRST205" || error?.code === "42P01") return undefined;
+  if (error) throw new Error(`Не удалось загрузить посещаемость: ${error.message}`);
+  return data ? {
+    revision: Number(data.revision), recordedAt: data.recorded_at,
+    attendees: data.evening_attendees.map(({ player_id }) => player_id as string),
+  } : null;
 }

@@ -1,8 +1,10 @@
 "use server";
 
+import { updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/lib/form-state";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { eveningReturn } from "@/lib/evening-return";
 import { getLocale } from "@/lib/i18n/server";
 import { translate, type MessageKey } from "@/lib/i18n/messages";
 import { isValidNickname, normalizeNickname } from "@/lib/nickname";
@@ -18,6 +20,9 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   // Одно и то же сообщение для любой ошибки, чтобы не раскрывать, какие почты есть в системе.
   if (error) return { message: t("credentialsInvalid") };
+
+  const next = eveningReturn(formData.get("next"));
+  if (next) redirect(next);
 
   const { data: isAdmin } = await supabase.rpc("is_admin");
   redirect(isAdmin === true ? "/admin" : "/evenings");
@@ -52,12 +57,14 @@ export async function signUp(_prev: FormState, formData: FormData): Promise<Form
     return { message: t("registrationFailed") };
   }
 
+  updateTag("club");
+
   // Если в Supabase всё ещё включено подтверждение почты, сессии не будет.
   if (!data.session) {
     return { message: t("confirmEmail") };
   }
 
-  redirect("/evenings");
+  redirect(eveningReturn(formData.get("next")) ?? "/evenings");
 }
 
 export async function signOut() {

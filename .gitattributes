@@ -1,0 +1,4 @@
+# The provenance test compares these files with byte-for-byte reference hashes.
+/src/lib/league/legacy/*.ts text eol=lf
+/tests/fixtures/frozen-v1.ts text eol=lf
+/tests/fixtures/v33-baseline.json text eol=lf

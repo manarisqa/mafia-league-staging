@@ -1,5 +1,8 @@
 "use client";
 
+import { siteText } from "@/lib/i18n/site";
+import type { Locale } from "@/lib/i18n/messages";
+
 import { useActionState } from "react";
 import { RevisionField } from "@/components/form-revision";
 import { rsvp } from "@/app/evenings/actions";
@@ -15,24 +18,25 @@ const OPTIONS: { value: Status; label: string }[] = [
 
 export function RsvpButtons({
   eveningId,
+  locale,
   current,
   revision,
   name,
 }: {
+  locale: Locale;
   eveningId: string;
   current: Status | null;
   revision: number;
   name: string;
 }) {
+  const t = (label: string) => siteText(locale, label);
   const [state, action, pending] = useActionState(rsvp, {});
 
   return (
     <form action={action}>
       <input type="hidden" name="evening_id" value={eveningId} />
       <RevisionField initial={revision} state={state} />
-      <p className="mb-3 text-sm text-muted">
-        Вы вошли как <span className="text-text">{name}</span>. Выберите, придёте ли на вечер:
-      </p>
+      <p className="mb-3 wrap-anywhere text-sm text-muted">{t("Вы вошли как")}{" "}<span className="text-text">{name}</span>{t(". Выберите, придёте ли на вечер:")}</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {OPTIONS.map((o) => {
           const active = current === o.value;
@@ -50,7 +54,7 @@ export function RsvpButtons({
                   : "border-border hover:border-accent-text"
               }`}
             >
-              {o.label}
+              {t(o.label)}
             </button>
           );
         })}
@@ -62,13 +66,11 @@ export function RsvpButtons({
           value="cancel"
           disabled={pending}
           className="mt-3 min-h-11 text-sm text-muted hover:text-text hover:underline disabled:opacity-60"
-        >
-          Отменить запись
-        </button>
+        >{t("Отменить запись")}</button>
       )}
       {state.message && (
         <p role="status" className={`mt-3 text-sm ${state.ok ? "text-success" : "text-error"}`}>
-          {state.message}
+          {t(state.message)}
         </p>
       )}
     </form>

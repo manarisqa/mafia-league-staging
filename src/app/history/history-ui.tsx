@@ -1,16 +1,19 @@
+import { siteText } from "@/lib/i18n/site";
+import type { Locale } from "@/lib/i18n/messages";
 import Link from "next/link";
 import type { HistoryTotals, SeasonSummary } from "@/lib/data";
 import { WINNER_SHORT, monthYear, plural } from "@/lib/format";
 import type { Winner } from "@/lib/rating";
 
 /** Победившая сторона: цветная метка и подпись (цвет не единственный признак). */
-export function WinnerMark({ winner }: { winner: Winner }) {
+export function WinnerMark({ locale, winner }: { locale: Locale; winner: Winner }) {
+  const t = (label: string) => siteText(locale, label);
   const dot =
     winner === "red" ? "bg-side-red" : winner === "black" ? "bg-side-black" : "border border-muted";
   return (
     <span className="inline-flex items-center gap-2">
       <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${dot}`} />
-      {WINNER_SHORT[winner]}
+      {t(WINNER_SHORT[winner])}
     </span>
   );
 }
@@ -20,25 +23,26 @@ function share(part: number, total: number) {
 }
 
 /** Сводка: вечера, партии, участники, победы красных и чёрных. */
-export function TotalsStrip({ totals, caption }: { totals: HistoryTotals; caption: string }) {
+export function TotalsStrip({ locale, totals, caption }: { locale: Locale; totals: HistoryTotals; caption: string }) {
+  const t = (label: string) => siteText(locale, label);
   const decided = totals.redWins + totals.blackWins;
   const items = [
-    { value: totals.evenings, label: plural(totals.evenings, ["игровой вечер", "игровых вечера", "игровых вечеров"]) },
-    { value: totals.games, label: plural(totals.games, ["партия", "партии", "партий"]) },
-    { value: totals.players, label: plural(totals.players, ["участник", "участника", "участников"]) },
+    { value: totals.evenings, label: plural(totals.evenings, ["игровой вечер", "игровых вечера", "игровых вечеров"].map(t) as [string, string, string]) },
+    { value: totals.games, label: plural(totals.games, ["партия", "партии", "партий"].map(t) as [string, string, string]) },
+    { value: totals.players, label: plural(totals.players, ["участник", "участника", "участников"].map(t) as [string, string, string]) },
     {
       value: totals.redWins,
-      label: `${plural(totals.redWins, ["победа", "победы", "побед"])} красных${share(totals.redWins, decided)}`,
+      label: `${plural(totals.redWins, ["победа", "победы", "побед"].map(t) as [string, string, string])} ${t("красных")}${share(totals.redWins, decided)}`,
       dot: "bg-side-red",
     },
     {
       value: totals.blackWins,
-      label: `${plural(totals.blackWins, ["победа", "победы", "побед"])} чёрных${share(totals.blackWins, decided)}`,
+      label: `${plural(totals.blackWins, ["победа", "победы", "побед"].map(t) as [string, string, string])} ${t("чёрных")}${share(totals.blackWins, decided)}`,
       dot: "bg-side-black",
     },
   ];
   return (
-    <section aria-label="Сводка" className="rounded-card border border-border bg-surface p-5">
+    <section aria-label={t("Сводка")} className="rounded-card border border-border bg-surface p-5">
       <p className="mb-4 text-sm text-muted">{caption}</p>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
         {items.map((it) => (
@@ -52,37 +56,35 @@ export function TotalsStrip({ totals, caption }: { totals: HistoryTotals; captio
         ))}
       </dl>
       {totals.draws > 0 && (
-        <p className="mt-4 text-sm text-muted">
-          Ничьих: {totals.draws}. Проценты считаются только по партиям с победителем.
-        </p>
+        <p className="mt-4 text-sm text-muted">{t("Ничьих:")}{totals.draws}{t(". Проценты считаются только по партиям с победителем.")}</p>
       )}
     </section>
   );
 }
 
-export function seasonPeriod(s: SeasonSummary) {
-  return `${monthYear(s.startsOn)} — ${s.endsOn ? monthYear(s.endsOn) : "сейчас"}`;
+export function seasonPeriod(s: SeasonSummary, locale: Locale) {
+  const t = (label: string) => siteText(locale, label);
+  return `${monthYear(s.startsOn, locale)} — ${s.endsOn ? monthYear(s.endsOn, locale) : t("сейчас")}`;
 }
 
 /** Карточка сезона. Сезон без даты окончания считается текущим. */
-export function SeasonCard({ season }: { season: SeasonSummary }) {
+export function SeasonCard({ locale, season }: { locale: Locale; season: SeasonSummary }) {
+  const t = (label: string) => siteText(locale, label);
   const current = !season.endsOn;
   return (
     <article
       className={`rounded-panel border p-4 ${current ? "border-accent bg-accent/10" : "border-border bg-surface"}`}
     >
       {current && (
-        <span className="mb-2 inline-flex rounded-full border border-accent/50 px-2.5 py-0.5 text-xs text-accent-text">
-          Текущий сезон
-        </span>
+        <span className="mb-2 inline-flex rounded-full border border-accent/50 px-2.5 py-0.5 text-xs text-accent-text">{t("Текущий сезон")}</span>
       )}
       <h3 className="font-display text-lg font-bold">{season.name}</h3>
-      <p className="text-sm text-muted">{seasonPeriod(season)}</p>
+      <p className="text-sm text-muted">{seasonPeriod(season, locale)}</p>
       <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
         {[
-          [season.evenings, plural(season.evenings, ["вечер", "вечера", "вечеров"])],
-          [season.games, plural(season.games, ["партия", "партии", "партий"])],
-          [season.players, plural(season.players, ["игрок", "игрока", "игроков"])],
+          [season.evenings, plural(season.evenings, ["вечер", "вечера", "вечеров"].map(t) as [string, string, string])],
+          [season.games, plural(season.games, ["партия", "партии", "партий"].map(t) as [string, string, string])],
+          [season.players, plural(season.players, ["игрок", "игрока", "игроков"].map(t) as [string, string, string])],
         ].map(([value, label]) => (
           <div key={label} className="flex flex-col-reverse">
             <dt className="text-muted">{label}</dt>
@@ -94,13 +96,12 @@ export function SeasonCard({ season }: { season: SeasonSummary }) {
   );
 }
 
-export function ProtocolLink({ id }: { id: string }) {
+export function ProtocolLink({ locale, id }: { locale: Locale; id: string }) {
+  const t = (label: string) => siteText(locale, label);
   return (
     <Link
       href={`/history/games/${id}`}
       className="inline-flex min-h-11 items-center whitespace-nowrap text-accent-text hover:underline"
-    >
-      Протокол →
-    </Link>
+    >{t("Протокол →")}</Link>
   );
 }
